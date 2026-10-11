@@ -1,0 +1,98 @@
+export const TRAVELERS = ["Marty", "Ema", "Antonio"] as const;
+export type Traveler = (typeof TRAVELERS)[number];
+
+export type StopType =
+  | "tempio" | "cibo" | "anime" | "shopping" | "natura"
+  | "esperienza" | "hotel" | "trasporti" | "altro";
+
+/** Una votazione: chi propone conta già come primo sì. Servono 2 sì su 3. */
+export interface Proposal {
+  by: Traveler;
+  yes: Traveler[];
+  no: Traveler[];
+  at: string;
+  /** Solo per le modifiche: i campi che cambiano. */
+  changes?: Partial<Pick<Stop, "title" | "type" | "dayId" | "time" | "place" | "lat" | "lng">>;
+  /** Solo per le modifiche: proposta di eliminare la tappa. */
+  remove?: boolean;
+}
+
+/**
+ * Una tappa.
+ * - status "ok": è nel programma del giorno `dayId`.
+ * - status "proposed": tappa nuova in votazione (vedi `proposal`).
+ * - status "idea": in wishlist, senza giorno (dayId "").
+ * Una tappa "ok" o "idea" può avere una `pendingEdit` in votazione.
+ */
+export interface Stop {
+  id: string;
+  title: string;
+  type: StopType;
+  dayId: string;
+  time: string;
+  place: string;
+  lat?: number;
+  lng?: number;
+  notes: string;
+  url: string;
+  status: "ok" | "proposed" | "idea";
+  done: boolean;
+  order: number;
+  proposal?: Proposal;
+  pendingEdit?: Proposal;
+  createdBy?: string;
+  createdAt?: string;
+  updatedBy?: string;
+  updatedAt?: string;
+}
+
+export interface Day {
+  id: string; // YYYY-MM-DD
+  city: string;
+  title: string;
+  hotel: string;
+  notes: string;
+  updatedBy?: string;
+}
+
+export interface Expense {
+  id: string;
+  title: string;
+  amount: number;
+  currency: "JPY" | "EUR";
+  paidBy: Traveler;
+  split: Traveler[];
+  cat: string;
+  date: string;
+  /** "settle" = rimborso tra due persone per pareggiare i conti. */
+  kind?: "settle";
+  createdBy?: string;
+  createdAt?: string;
+  updatedBy?: string;
+}
+
+export type BookingType = "volo" | "hotel" | "biglietto" | "treno" | "ristorante" | "esperienza" | "altro";
+
+export interface Booking {
+  id: string;
+  type: BookingType;
+  title: string;
+  date: string;
+  time: string;
+  endDate: string;
+  code: string;
+  place: string;
+  details: string;
+  createdBy?: string;
+  createdAt?: string;
+  updatedBy?: string;
+}
+
+export interface TripMeta {
+  /** Quanti yen per 1 euro. */
+  rate: number;
+  rateDate?: string;
+  updatedBy?: string;
+}
+
+export type Tab = "giorni" | "mappa" | "voti" | "spese" | "kit";

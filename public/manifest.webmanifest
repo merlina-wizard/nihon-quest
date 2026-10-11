@@ -1,0 +1,16 @@
+{
+  "name": "Nihon Quest",
+  "short_name": "Nihon Quest",
+  "description": "Il viaggio in Giappone di Marty, Ema e Antonio",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#EDEFFF",
+  "theme_color": "#1B1840",
+  "lang": "it",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-180.png", "sizes": "180x180", "type": "image/png" }
+  ]
+}

@@ -1,0 +1,137 @@
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { Avatar, isTraveler } from "./components/bits";
+import { SheetHost } from "./components/Sheets";
+import { ensureSignedIn, firebaseConfigured } from "./lib/firebase";
+import { todayTokyo } from "./lib/format";
+import { local } from "./lib/storage";
+import { pendingsOf, TripProvider, useTrip } from "./store";
+import { UiCtx, type SheetState, type Ui } from "./ui";
+import { proposalOf } from "./lib/votes";
+import { DaysView } from "./views/DaysView";
+import { ExpensesView } from "./views/ExpensesView";
+import { KitView } from "./views/KitView";
+import { MapView } from "./views/MapView";
+import { VotesView } from "./views/VotesView";
+import { TRAVELERS, type Tab } from "./types";
+
+export default function App() {
+  const [code, setCode] = useState<string | null>(local.get("code"));
+  const [auth, setAuth] = useState<"wait" | "ok" | "err">("wait");
+
+  useEffect(() => {
+    if (!firebaseConfigured) return;
+    ensureSignedIn().then(() => setAuth("ok"), (e) => { console.warn(e); setAuth("err"); });
+  }, []);
+  const onLeave = useCallback(() => setCode(null), []);
+
+  if (!firebaseConfigured) return <SetupMissing />;
+  if (auth === "err") return <Center title="Accesso non riuscito">Controlla la connessione. Se il problema resta, nella console Firebase va attivato l'accesso anonimo (vedi README).</Center>;
+  if (auth === "wait") return <Center title="NIHON QUEST">Un attimo…</Center>;
+  if (!code) return <CodeGate onCode={(c) => { local.set("code", c); setCode(c); }} />;
+
+  return (
+    <TripProvider code={code} onLeave={onLeave}>
+      <Shell />
+    </TripProvider>
+  );
+}
+
+function Center({ title, children }: { title: string; children?: React.ReactNode }) {
+  return <div className="center-screen"><h1>{title}</h1>{children && <p>{children}</p>}</div>;
+}
+
+function SetupMissing() {
+  return (
+    <Center title="Configurazione mancante">
+      Mancano le chiavi di Firebase. In locale copia <code>.env.example</code> in <code>.env.local</code> e compilalo; su GitHub aggiungile come secret del repository. Trovi i passaggi nel README.
+    </Center>
+  );
+}
+
+/** Schermata del codice segreto: è la chiave che apre i dati del viaggio. */
+function CodeGate({ onCode }: { onCode: (c: string) => void }) {
+  const [v, setV] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    const c = v.trim().toLowerCase().replace(/\s+/g, "-");
+    if (!/^[a-z0-9_-]{12,64}$/.test(c)) { setErr("Il codice ha almeno 12 caratteri: lettere, numeri e trattini."); return; }
+    onCode(c);
+  };
+  return (
+    <form className="center-screen" onSubmit={submit}>
+      <h1>NIHON <i>QUEST</i></h1>
+      <p>Scrivi il codice del viaggio che ti hanno mandato.</p>
+      <input className="inp" id="trip_code" autoCapitalize="none" autoCorrect="off" spellCheck={false} value={v} onChange={(e) => setV(e.target.value)} placeholder="es. sakura-pikachu-2026-xq" aria-label="Codice del viaggio" />
+      {err && <p className="err" style={{ textAlign: "center" }}>{err}</p>}
+      <button className="btn primary block" type="submit">Entra</button>
+      <p style={{ fontSize: 12.5 }}>Chi crea il viaggio sceglie il codice al primo accesso: con un codice nuovo si parte da un viaggio vuoto.</p>
+    </form>
+  );
+}
+
+const NAV: { tab: Tab; label: string; icon: JSX.Element }[] = [
+  { tab: "giorni", label: "Giorni", icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><rect x="3.5" y="5" width="17" height="15" rx="3" /><path d="M3.5 10h17M8 3v4M16 3v4" /></svg> },
+  { tab: "mappa", label: "Mappa", icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 21s-6.5-6-6.5-11a6.5 6.5 0 0 1 13 0c0 5-6.5 11-6.5 11z" /><circle cx="12" cy="10" r="2.4" /></svg> },
+  { tab: "voti", label: "Idee", icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3l2.6 5.4 5.9.8-4.3 4.1 1 5.8L12 16.4 6.8 19.1l1-5.8L3.5 9.2l5.9-.8z" /></svg> },
+  { tab: "spese", label: "Spese", icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="8.5" /><path d="M8.5 7.5L12 12l3.5-4.5M8.5 12.5h7M8.5 15.5h7M12 12v5.5" /></svg> },
+  { tab: "kit", label: "Kit", icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 8h16v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" /><path d="M9 8V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V8M4 13h16" /></svg> },
+];
+
+function Shell() {
+  const { me, setMe, days, stops, error } = useTrip();
+  const [tab, setTabState] = useState<Tab>(() => (local.get("tab") as Tab) || "giorni");
+  const [sheet, setSheet] = useState<SheetState>(null);
+  const [day, setDay] = useState<string | null>(null);
+
+  // Giorno di partenza: oggi (ora di Tokyo) se è nel viaggio, altrimenti il primo o l'ultimo.
+  useEffect(() => {
+    if (day || !days.length) return;
+    const t = todayTokyo();
+    setDay(days.some((d) => d.id === t) ? t : t < days[0].id ? days[0].id : days[days.length - 1].id);
+  }, [days, day]);
+
+  const setTab = (t: Tab) => { local.set("tab", t); setTabState(t); window.scrollTo(0, 0); };
+  const close = useCallback(() => setSheet(null), []);
+  const ui = useMemo<Ui>(() => ({ open: setSheet, close, day, setDay }), [close, day]);
+
+  const toVote = me ? pendingsOf(stops).filter((s) => { const p = proposalOf(s); return p && !p.yes.includes(me) && !p.no.includes(me); }).length : 0;
+
+  return (
+    <UiCtx.Provider value={ui}>
+      {!isTraveler(me) && (
+        <div className="who">
+          <h1>NIHON <i>QUEST</i></h1>
+          <p>Chi sta giocando?</p>
+          <div className="chars">
+            {TRAVELERS.map((n) => <button key={n} className="char" onClick={() => setMe(n)}><Avatar name={n} />{n}</button>)}
+          </div>
+          <p style={{ fontSize: 12.5, fontWeight: 400 }}>Serve per i voti e le spese. Puoi cambiarlo dopo toccando il tuo nome in alto.</p>
+        </div>
+      )}
+      <header className="top">
+        <div className="logo"><b>NIHON <i>QUEST</i></b><small>東京 · 京都 · 大阪 · 2026</small></div>
+        <button className="me-chip" onClick={() => setSheet({ kind: "settings" })} aria-label="Chi sei e impostazioni">
+          {me ? <><Avatar name={me} /><span>{me}</span></> : <><span className="av off">?</span><span>Chi sei?</span></>}
+        </button>
+      </header>
+      <main>
+        {error && <div className="banner">{error}</div>}
+        {tab === "giorni" && <DaysView />}
+        {tab === "mappa" && <MapView />}
+        {tab === "voti" && <VotesView />}
+        {tab === "spese" && <ExpensesView />}
+        {tab === "kit" && <KitView />}
+      </main>
+      <nav className="nav" aria-label="Sezioni">
+        {NAV.map((n) => (
+          <button key={n.tab} aria-current={tab === n.tab ? "page" : undefined} onClick={() => setTab(n.tab)}>
+            {n.icon}{n.label}
+            {n.tab === "voti" && toVote > 0 && <span className="dotbadge">{toVote}</span>}
+          </button>
+        ))}
+      </nav>
+      <SheetHost sheet={sheet} />
+    </UiCtx.Provider>
+  );
+}

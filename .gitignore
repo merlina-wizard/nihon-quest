@@ -1,0 +1,8 @@
+node_modules
+dist
+.env
+.env.local
+*.local
+.DS_Store
+# i dati del viaggio non vanno nel repo pubblico
+*-dati.json
