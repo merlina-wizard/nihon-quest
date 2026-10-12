@@ -29,7 +29,7 @@ export function SheetHost({ sheet }: { sheet: SheetState }) {
   const panel = useRef<HTMLDivElement>(null);
   const drag = useRef<{ y: number; dy: number } | null>(null);
   const onDown = (e: PointerEvent<HTMLDivElement>) => {
-    e.currentTarget.setPointerCapture(e.pointerId);
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* puntatore già rilasciato */ }
     drag.current = { y: e.clientY, dy: 0 };
     if (panel.current) panel.current.style.transition = "none";
   };

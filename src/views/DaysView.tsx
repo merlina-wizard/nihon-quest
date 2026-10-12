@@ -112,7 +112,11 @@ function NowCard({ days }: { days: Day[] }) {
           <a className="btn primary block" href={mapsLink(n.stop)} target="_blank" rel="noopener">Portami lì</a>
         </>
       ) : (
-        <p className="muted" style={{ margin: 0 }}>{list.some((s) => s.status === "ok") ? "Tappe di oggi completate. Bel lavoro!" : "Nessuna tappa in programma oggi."}</p>
+        <p className="muted" style={{ margin: 0 }}>
+          {!list.some((s) => s.status === "ok") ? "Nessuna tappa in programma oggi."
+            : list.every((s) => s.status !== "ok" || s.done) ? "Tappe di oggi completate. Bel lavoro!"
+              : "Niente in programma nelle prossime ore. Spunta qui sotto le tappe già fatte."}
+        </p>
       )}
       {nb && (
         <div className="now-book">

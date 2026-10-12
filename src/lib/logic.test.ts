@@ -102,6 +102,12 @@ describe("oggi", () => {
     expect(nextUp([st({ done: true })], "10:00")).toBeNull();
     expect(nextUp([st({ time: "" })], "10:00")?.inMin).toBeNull();
   });
+  it("salta le tappe passate da più di un'ora", () => {
+    const list = [st({ id: "a", time: "09:00" }), st({ id: "b", time: "13:00" }), st({ id: "c", time: "" })];
+    expect(nextUp(list, "11:30")?.stop.id).toBe("b");
+    expect(nextUp(list, "14:30")?.stop.id).toBe("c");
+    expect(nextUp(list.slice(0, 2), "14:30")).toBeNull();
+  });
   it("scrive i minuti mancanti", () => {
     expect(fmtIn(40)).toBe("tra 40 min");
     expect(fmtIn(125)).toBe("tra 2 h 5 min");

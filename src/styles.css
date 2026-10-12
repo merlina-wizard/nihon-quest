@@ -35,6 +35,8 @@ body{background:var(--bg);background-image:radial-gradient(var(--dot) 1.2px,tran
   color:var(--ink);font-family:var(--font-body);font-size:15px;line-height:1.45;-webkit-tap-highlight-color:transparent}
 button,input,select,textarea{font:inherit;color:inherit}
 button{cursor:pointer}
+/* Niente zoom col doppio tocco sui comandi (es. "Tocca di nuovo per eliminare"). */
+button,a,label,select,input{touch-action:manipulation}
 :focus-visible{outline:3px solid var(--blue);outline-offset:2px}
 h1,h2,h3{font-family:var(--font-display);font-weight:400;margin:0;text-wrap:balance;letter-spacing:.01em}
 .num{font-variant-numeric:tabular-nums}
@@ -42,12 +44,16 @@ h1,h2,h3{font-family:var(--font-display);font-weight:400;margin:0;text-wrap:bala
 /* Header */
 .top{position:sticky;top:0;z-index:1000;background:var(--bg);border-bottom:2px solid var(--line);
   padding:calc(10px + env(safe-area-inset-top,0px)) 16px 10px;display:flex;align-items:center;gap:12px}
-.logo{display:flex;flex-direction:column;line-height:1}
-.logo b{font-family:var(--font-display);font-weight:400;font-size:20px;letter-spacing:.02em}
+.logo{display:flex;flex-direction:column;line-height:1;min-width:0}
+.logo b{font-family:var(--font-display);font-weight:400;font-size:clamp(16px,5vw,20px);letter-spacing:.02em;white-space:nowrap}
 .logo b i{font-style:normal;color:var(--pink)}
-.logo small{font-size:11px;color:var(--muted);letter-spacing:.12em;margin-top:3px}
-.me-chip{margin-left:auto;display:flex;align-items:center;gap:8px;background:var(--surface);border:2px solid var(--line);
-  border-radius:999px;padding:4px 12px 4px 4px;box-shadow:2px 2px 0 var(--shadow);font-weight:800}
+.logo small{font-size:11px;color:var(--muted);letter-spacing:.12em;margin-top:3px;white-space:nowrap}
+.me-chip{margin-left:auto;flex:none;display:flex;align-items:center;gap:8px;background:var(--surface);border:2px solid var(--line);min-height:44px;
+  border-radius:999px;padding:5px 12px 5px 5px;box-shadow:2px 2px 0 var(--shadow);font-weight:800}
+.sync-chip{flex:none}
+/* Telefoni stretti con "Non salvato" visibile: resta solo l'avatar, e sotto i 360 px sparisce la riga delle città. */
+@media (max-width:420px){.top.unsynced .me-chip{padding-right:5px}.top.unsynced .me-chip .name{display:none}}
+@media (max-width:359px){.top.unsynced .logo small{display:none}}
 .av{width:30px;height:30px;border-radius:50%;display:inline-grid;place-items:center;font-family:var(--font-display);font-size:14px;
   color:var(--on-accent);border:2px solid var(--line);flex:none}
 .av.sm{width:22px;height:22px;font-size:10px;border-width:1.5px}
@@ -81,12 +87,13 @@ main{padding:14px 16px calc(var(--nav-h) + 28px + env(safe-area-inset-bottom,0px
 .btn.yes{background:var(--mint);color:var(--on-accent)}
 .btn.no{background:var(--surface);color:var(--red)}
 .btn.ghost{box-shadow:none;border-color:var(--hair)}
-.btn.small{min-height:36px;padding:6px 10px;font-size:13px;box-shadow:2px 2px 0 var(--shadow)}
+.btn.small{min-height:44px;padding:6px 12px;font-size:13px;box-shadow:2px 2px 0 var(--shadow)}
 .btn.block{width:100%}
 .btn[disabled]{opacity:.5;pointer-events:none}
 .add-btn{border:2px dashed var(--line);background:transparent;border-radius:var(--r);padding:14px;font-weight:800;color:var(--ink);width:100%;min-height:52px}
 .chip{display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:2px 9px;font-size:11.5px;font-weight:800;border:1.5px solid var(--line);background:var(--surface-2);white-space:nowrap}
 .chip.vote{background:var(--yellow);color:var(--on-yellow)}
+button.chip{min-height:44px;padding:4px 12px;font-size:12.5px}
 .chip.done{background:var(--mint);color:var(--on-accent)}
 .chip.idea{background:var(--surface-2)}
 .section-h{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-top:6px}
@@ -105,7 +112,7 @@ main{padding:14px 16px calc(var(--nav-h) + 28px + env(safe-area-inset-bottom,0px
 .dchip[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
 .dchip[aria-pressed="true"] small{color:var(--bg);opacity:.8}
 .dchip.today{outline:3px solid var(--pink);outline-offset:1px}
-.mchip{flex:none;border:2px solid var(--line);border-radius:999px;background:var(--surface);padding:6px 12px;font-weight:800;font-size:13px;white-space:nowrap}
+.mchip{flex:none;border:2px solid var(--line);border-radius:999px;background:var(--surface);padding:6px 14px;min-height:44px;font-weight:800;font-size:13px;white-space:nowrap}
 .mchip[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
 
 /* Day hero */
@@ -138,7 +145,7 @@ main{padding:14px 16px calc(var(--nav-h) + 28px + env(safe-area-inset-bottom,0px
 .st-title{font-weight:800;font-size:15px;line-height:1.25}
 .st-place{font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .st-chips{display:flex;gap:5px;flex-wrap:wrap}
-.check{width:40px;height:40px;border-radius:12px;border:2px solid var(--line);background:var(--surface);display:grid;place-items:center;font-size:18px;font-weight:800}
+.check{width:44px;height:44px;border-radius:12px;border:2px solid var(--line);background:var(--surface);display:grid;place-items:center;font-size:18px;font-weight:800}
 .check[aria-pressed="true"]{background:var(--mint);color:var(--on-accent)}
 .type-tempio{--tc:var(--t-tempio)}.type-cibo{--tc:var(--t-cibo)}.type-shopping{--tc:var(--t-shopping)}.type-anime{--tc:var(--t-anime)}
 .type-natura{--tc:var(--t-natura)}.type-esperienza{--tc:var(--t-esperienza)}.type-hotel{--tc:var(--t-hotel)}.type-trasporti{--tc:var(--t-trasporti)}.type-altro{--tc:var(--t-altro)}
@@ -161,7 +168,7 @@ main{padding:14px 16px calc(var(--nav-h) + 28px + env(safe-area-inset-bottom,0px
 .plist{display:flex;flex-direction:column;gap:8px}
 .pitem{display:flex;align-items:center;gap:10px;background:var(--surface);border:2px solid var(--line);border-radius:12px;padding:8px 10px}
 .pitem .n{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-family:var(--font-display);font-size:12px;border:2px solid var(--line);color:var(--on-accent);background:var(--tc,var(--blue));flex:none}
-.pitem .t{flex:1;min-width:0;background:none;border:0;text-align:left;padding:0}
+.pitem .t{flex:1;min-width:0;min-height:44px;background:none;border:0;text-align:left;padding:0}
 .pitem .t b{display:block;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pitem .t small{color:var(--muted);font-size:12px}
 
@@ -201,9 +208,9 @@ main{padding:14px 16px calc(var(--nav-h) + 28px + env(safe-area-inset-bottom,0px
 .conv span{font-family:var(--font-display);font-size:16px}
 
 /* Tickets */
-.ticket{position:relative;background:var(--surface);border:2px solid var(--line);border-radius:var(--r);box-shadow:4px 4px 0 var(--shadow);display:grid;grid-template-columns:1fr auto;overflow:hidden}
+.ticket{position:relative;background:var(--surface);border:2px solid var(--line);border-radius:var(--r);box-shadow:4px 4px 0 var(--shadow);display:grid;grid-template-columns:minmax(0,1fr) auto;overflow:hidden}
 .ticket .l{padding:12px 14px;min-width:0;display:flex;flex-direction:column;gap:4px}
-.ticket .r{border-left:2px dashed var(--line);padding:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;background:var(--surface-2);min-width:96px}
+.ticket .r{border-left:2px dashed var(--line);padding:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;background:var(--surface-2);min-width:96px;max-width:132px}
 .ticket .kind{font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--tc,var(--muted))}
 .ticket b.tt{font-size:16px;font-weight:800;line-height:1.25}
 .ticket .when{font-family:var(--font-display);font-size:13px}
@@ -227,7 +234,7 @@ main{padding:14px 16px calc(var(--nav-h) + 28px + env(safe-area-inset-bottom,0px
 /* Sheet */
 .sheet{position:fixed;inset:0;z-index:1100;display:flex;flex-direction:column;justify-content:flex-end}
 .sheet-bg{position:absolute;inset:0;background:rgba(10,8,30,.55);border:0}
-.sheet-panel{position:relative;background:var(--surface);border-top:2px solid var(--line);border-radius:22px 22px 0 0;max-height:90vh;overflow-y:auto;
+.sheet-panel{position:relative;background:var(--surface);border-top:2px solid var(--line);border-radius:22px 22px 0 0;max-height:90vh;max-height:90dvh;overflow-y:auto;overscroll-behavior:contain;
   padding:8px 16px calc(20px + env(safe-area-inset-bottom,0px));width:100%;max-width:640px;margin:0 auto;animation:up .18s ease-out;transition:transform .15s ease-out}
 @keyframes up{from{transform:translateY(24px);opacity:.6}to{transform:none;opacity:1}}
 @media (prefers-reduced-motion:reduce){.sheet-panel{animation:none;transition:none}.btn{transition:none}}
@@ -252,11 +259,14 @@ label.f{display:flex;flex-direction:column;gap:5px;font-size:13px;font-weight:80
 label.f small{font-weight:400;color:var(--muted)}
 .inp{border:2px solid var(--line);border-radius:12px;background:var(--surface);padding:10px 12px;min-height:46px;width:100%;font-size:16px}
 textarea.inp{min-height:84px;resize:vertical}
+/* iOS: date e ore senza stile nativo, altrimenti ignorano la larghezza e centrano il testo. */
+.inp[type="date"],.inp[type="time"]{-webkit-appearance:none;appearance:none;display:block}
+.inp::-webkit-date-and-time-value{text-align:left}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .two>*{min-width:0}
 .pick{display:flex;flex-wrap:wrap;gap:6px}
 .pick input{position:absolute;opacity:0;pointer-events:none}
-.pick label{border:2px solid var(--line);border-radius:999px;padding:6px 11px;font-size:13px;font-weight:800;background:var(--surface);cursor:pointer}
+.pick label{display:inline-flex;align-items:center;min-height:44px;border:2px solid var(--line);border-radius:999px;padding:6px 13px;font-size:13px;font-weight:800;background:var(--surface);cursor:pointer}
 .pick input:checked+label{background:var(--ink);color:var(--bg)}
 .pick input:focus-visible+label{outline:3px solid var(--blue);outline-offset:2px}
 .hint{font-size:12.5px;color:var(--muted)}
@@ -299,7 +309,7 @@ a{color:var(--blue)}
 .popup .row{gap:6px}
 .me-dot{width:16px;height:16px;border-radius:50%;background:var(--blue);border:3px solid #fff;box-shadow:0 0 0 2px var(--blue)}
 .map-tools{position:absolute;right:10px;top:10px;z-index:500;display:flex;flex-direction:column;gap:6px}
-.map-tools .btn{min-height:40px;padding:6px 10px}
+.map-tools .btn{min-height:44px;padding:6px 12px}
 
 /* Tile della mappa più scure nel tema scuro */
 @media (prefers-color-scheme: dark){ .leaflet-tile-pane{filter:brightness(.72) contrast(1.1) saturate(.8)} }

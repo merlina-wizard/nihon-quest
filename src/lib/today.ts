@@ -10,16 +10,24 @@ export function minutesOf(hm: string | undefined): number | null {
   return m ? +m[1] * 60 + +m[2] : null;
 }
 
+/** Una tappa non spuntata resta "la prossima" fino a un'ora dopo il suo orario, poi si passa oltre. */
+export const LATE_LIMIT = 60;
+
 /**
  * La prossima tappa da fare, dato l'elenco del giorno già ordinato (vedi `dayStops`).
- * È la prima tappa nel programma non ancora fatta, anche se il suo orario è già passato.
+ * È la prima tappa nel programma non ancora fatta e non passata da più di un'ora
+ * (chi non spunta le tappe non deve vedersi proporre quella del mattino a sera).
  * `inMin` sono i minuti mancanti (negativi se in ritardo), null se la tappa non ha orario.
  */
 export function nextUp(list: Stop[], hm: string): { stop: Stop; inMin: number | null } | null {
-  const stop = list.find((s) => s.status === "ok" && !s.done);
-  if (!stop) return null;
-  const at = minutesOf(stop.time), now = minutesOf(hm);
-  return { stop, inMin: at === null || now === null ? null : at - now };
+  const now = minutesOf(hm);
+  for (const stop of list) {
+    if (stop.status !== "ok" || stop.done) continue;
+    const at = minutesOf(stop.time);
+    if (at === null || now === null) return { stop, inMin: null };
+    if (at - now >= -LATE_LIMIT) return { stop, inMin: at - now };
+  }
+  return null;
 }
 
 /** "tra 40 min", "tra 2 h 5 min", "adesso", "15 min fa". */

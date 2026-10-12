@@ -167,11 +167,11 @@ function Shell() {
           <p style={{ fontSize: 12.5, fontWeight: 400 }}>Serve per i voti e le spese. Puoi cambiarlo dopo toccando il tuo nome in alto.</p>
         </div>
       )}
-      <header className="top">
+      <header className={`top ${loaded && !synced ? "unsynced" : ""}`}>
         <div className="logo"><b>NIHON <i>QUEST</i></b><small>東京 · 京都 · 大阪 · 2026</small></div>
-        {loaded && !synced && <span className="chip vote" style={{ marginLeft: "auto" }} title="Le ultime modifiche non sono ancora arrivate al server">Non salvato</span>}
+        {loaded && !synced && <span className="chip vote sync-chip" style={{ marginLeft: "auto" }} title="Le ultime modifiche non sono ancora arrivate al server">Non salvato</span>}
         <button className="me-chip" style={loaded && !synced ? { marginLeft: 8 } : undefined} onClick={() => open({ kind: "settings" })} aria-label="Chi sei e impostazioni">
-          {me ? <><Avatar name={me} /><span>{me}</span></> : <><span className="av off">?</span><span>Chi sei?</span></>}
+          {me ? <><Avatar name={me} /><span className="name">{me}</span></> : <><span className="av off">?</span><span className="name">Chi sei?</span></>}
         </button>
       </header>
       <main>
