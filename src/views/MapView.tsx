@@ -24,6 +24,13 @@ function pinIcon(s: Stop, label: string | number, emoji: boolean) {
 
 const meIcon = L.divIcon({ className: "", html: '<div class="me-dot"></div>', iconSize: [16, 16], iconAnchor: [8, 8] });
 
+/** Scritta di OpenStreetMap più piccola, senza il marchio di Leaflet. */
+function SmallAttribution() {
+  const map = useMap();
+  useEffect(() => { map.attributionControl.setPrefix(false); }, [map]);
+  return null;
+}
+
 /** Inquadra i punti ogni volta che cambia la selezione. */
 function FitBounds({ points, keyId }: { points: LatLng[]; keyId: string }) {
   const map = useMap();
@@ -91,6 +98,7 @@ export function MapView() {
             url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
             maxZoom={19}
           />
+          <SmallAttribution />
           <FitBounds points={withPos} keyId={sel} />
           <FlyTo to={me} />
           {isDay && withPos.length > 1 && (
