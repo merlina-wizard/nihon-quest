@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Avatar, isTraveler } from "./components/bits";
 import { SheetHost } from "./components/Sheets";
 import { ensureSignedIn, firebaseConfigured } from "./lib/firebase";
@@ -13,8 +13,30 @@ import { KitView } from "./views/KitView";
 import { MapView } from "./views/MapView";
 import { VotesView } from "./views/VotesView";
 import { TRAVELERS, type Tab } from "./types";
+import { useRegisterSW } from "virtual:pwa-register/react";
 
 export default function App() {
+  return <><Main /><UpdateBar /></>;
+}
+
+/** Avviso quando è pubblicata una nuova versione dell'app (il service worker la tiene in attesa). */
+function UpdateBar() {
+  const { needRefresh: [need], updateServiceWorker } = useRegisterSW({
+    onRegisteredSW(_url, r) {
+      // Un'app aperta per giorni controlla gli aggiornamenti quando torna in primo piano.
+      if (r) document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") r.update().catch(() => {}); });
+    },
+  });
+  if (!need) return null;
+  return (
+    <div className="update-bar" role="status">
+      <span>Nuova versione disponibile.</span>
+      <button className="btn small primary" onClick={() => updateServiceWorker(true)}>Aggiorna</button>
+    </div>
+  );
+}
+
+function Main() {
   const [code, setCode] = useState<string | null>(local.get("code"));
   const [auth, setAuth] = useState<"wait" | "ok" | "err">("wait");
 
@@ -85,15 +107,51 @@ function Shell() {
   const [day, setDay] = useState<string | null>(null);
 
   // Giorno di partenza: oggi (ora di Tokyo) se è nel viaggio, altrimenti il primo o l'ultimo.
-  useEffect(() => {
-    if (day || !days.length) return;
+  const autoDay = useRef<string | null>(null);
+  const pickToday = useCallback(() => {
+    if (!days.length) return;
     const t = todayTokyo();
-    setDay(days.some((d) => d.id === t) ? t : t < days[0].id ? days[0].id : days[days.length - 1].id);
-  }, [days, day]);
+    const d = days.some((x) => x.id === t) ? t : t < days[0].id ? days[0].id : days[days.length - 1].id;
+    autoDay.current = d;
+    setDay(d);
+  }, [days]);
+  useEffect(() => { if (!day) pickToday(); }, [day, pickToday]);
+  // Se l'app resta aperta a cavallo della mezzanotte, al ritorno si passa al nuovo giorno,
+  // a meno che non si stia guardando un giorno scelto a mano.
+  useEffect(() => {
+    const onVis = () => { if (document.visibilityState === "visible" && day === autoDay.current) pickToday(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [day, pickToday]);
 
   const setTab = (t: Tab) => { local.set("tab", t); setTabState(t); window.scrollTo(0, 0); };
-  const close = useCallback(() => setSheet(null), []);
-  const ui = useMemo<Ui>(() => ({ open: setSheet, close, day, setDay }), [close, day]);
+  // I pannelli hanno una voce nella cronologia: il tasto (o gesto) Indietro chiude il pannello invece di uscire dall'app.
+  const closing = useRef(false);
+  const pending = useRef<SheetState>(null);
+  const close = useCallback(() => {
+    if (history.state?.nqSheet && !closing.current) { closing.current = true; history.back(); }
+    else if (!closing.current) setSheet(null);
+  }, []);
+  const open = useCallback((s: SheetState) => {
+    if (!s) { close(); return; }
+    if (closing.current) { pending.current = s; return; } // si apre appena finisce la chiusura
+    if (history.state?.nqSheet) history.replaceState({ nqSheet: true }, "");
+    else history.pushState({ nqSheet: true }, "");
+    setSheet(s);
+  }, [close]);
+  useEffect(() => {
+    const onPop = () => {
+      // Si è tornati alla voce del pannello (es. chiudendo una foto sopra di esso): il pannello resta.
+      if (history.state?.nqSheet) return;
+      closing.current = false;
+      const next = pending.current;
+      pending.current = null;
+      if (next) { history.pushState({ nqSheet: true }, ""); setSheet(next); } else setSheet(null);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+  const ui = useMemo<Ui>(() => ({ open, close, day, setDay }), [open, close, day]);
 
   const toVote = me ? pendingsOf(stops).filter((s) => { const p = proposalOf(s); return p && !p.yes.includes(me) && !p.no.includes(me); }).length : 0;
 
@@ -112,7 +170,7 @@ function Shell() {
       <header className="top">
         <div className="logo"><b>NIHON <i>QUEST</i></b><small>東京 · 京都 · 大阪 · 2026</small></div>
         {loaded && !synced && <span className="chip vote" style={{ marginLeft: "auto" }} title="Le ultime modifiche non sono ancora arrivate al server">Non salvato</span>}
-        <button className="me-chip" style={loaded && !synced ? { marginLeft: 8 } : undefined} onClick={() => setSheet({ kind: "settings" })} aria-label="Chi sei e impostazioni">
+        <button className="me-chip" style={loaded && !synced ? { marginLeft: 8 } : undefined} onClick={() => open({ kind: "settings" })} aria-label="Chi sei e impostazioni">
           {me ? <><Avatar name={me} /><span>{me}</span></> : <><span className="av off">?</span><span>Chi sei?</span></>}
         </button>
       </header>

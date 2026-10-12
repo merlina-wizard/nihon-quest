@@ -4,7 +4,8 @@ import { MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from "react-
 import { DayStrip, Empty } from "../components/bits";
 import { CITIES, TYPES, typeOf } from "../lib/constants";
 import { fmtShort } from "../lib/format";
-import { hasPos, mapsLink, nearestCity, routeLink, type LatLng } from "../lib/geo";
+import { distanceM, fmtDist, hasPos, mapsLink, nearestCity, routeLink, type LatLng } from "../lib/geo";
+import { useHere } from "../lib/position";
 import { dayStops, useTrip } from "../store";
 import { useUi } from "../ui";
 import type { Stop } from "../types";
@@ -53,8 +54,9 @@ export function MapView() {
   const { days, stops } = useTrip();
   const { day, setDay, open } = useUi();
   const [sel, setSel] = useState<Sel>(day ? `day:${day}` : "all");
-  const [me, setMe] = useState<LatLng | null>(null);
-  const [locErr, setLocErr] = useState<string | null>(null);
+  const { here: me, err: locErr, busy: locating, locate } = useHere();
+  // Si vola sulla posizione solo dopo un tocco su "Io", non all'apertura della mappa.
+  const [fly, setFly] = useState<LatLng | null>(null);
 
   const isDay = sel.startsWith("day:");
   const pts = useMemo(() => {
@@ -68,16 +70,6 @@ export function MapView() {
   const withPos = pts.filter(hasPos) as (Stop & LatLng)[];
   const noPos = pts.filter((s) => !hasPos(s));
   const route = isDay ? routeLink(withPos) : null;
-
-  const locate = () => {
-    setLocErr(null);
-    if (!navigator.geolocation) { setLocErr("Il telefono non condivide la posizione."); return; }
-    navigator.geolocation.getCurrentPosition(
-      (p) => setMe({ lat: p.coords.latitude, lng: p.coords.longitude }),
-      () => setLocErr("Posizione non disponibile: controlla i permessi del browser."),
-      { enableHighAccuracy: true, timeout: 10000 },
-    );
-  };
 
   if (!days.length) return <Empty title="La mappa si riempie con l'itinerario." />;
 
@@ -100,7 +92,7 @@ export function MapView() {
           />
           <SmallAttribution />
           <FitBounds points={withPos} keyId={sel} />
-          <FlyTo to={me} />
+          <FlyTo to={fly} />
           {isDay && withPos.length > 1 && (
             <Polyline positions={withPos.map((p) => [p.lat, p.lng] as [number, number])} pathOptions={{ color: "#FF3D7F", weight: 3, dashArray: "6 8", opacity: 0.85 }} />
           )}
@@ -121,7 +113,7 @@ export function MapView() {
           {me && <Marker position={[me.lat, me.lng]} icon={meIcon} />}
         </MapContainer>
         <div className="map-tools">
-          <button className="btn small" onClick={locate} aria-label="Mostra dove sono">📍 Io</button>
+          <button className="btn small" disabled={locating} onClick={() => locate().then((p) => p && setFly({ ...p }))} aria-label="Mostra dove sono">📍 Io</button>
         </div>
       </div>
       {locErr && <p className="err">{locErr}</p>}
@@ -134,7 +126,7 @@ export function MapView() {
             <span className="n num" style={{ background: `var(--t-${typeOf(s.type)})` }}>{isDay ? i + 1 : TYPES[typeOf(s.type)].icon}</span>
             <button className="t plain" onClick={() => open({ kind: "stop", id: s.id })}>
               <b>{s.title}</b>
-              <small>{[s.dayId ? fmtShort(s.dayId) : "Wishlist", s.time].filter(Boolean).join(" · ")}</small>
+              <small>{[s.dayId ? fmtShort(s.dayId) : "Wishlist", s.time, me && fmtDist(distanceM(me, s))].filter(Boolean).join(" · ")}</small>
             </button>
             <a className="btn small" href={mapsLink(s)} target="_blank" rel="noopener">Portami lì</a>
           </div>

@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { TYPES, typeOf } from "../lib/constants";
 import { fmtDay, todayTokyo, dt } from "../lib/format";
 import { proposalOf } from "../lib/votes";
@@ -6,6 +6,7 @@ import { useTrip } from "../store";
 import { TRAVELERS, type Day, type Stop, type Traveler } from "../types";
 import { fmtShort } from "../lib/format";
 import { hasPos } from "../lib/geo";
+import type { SheetState } from "../ui";
 
 export function Avatar({ name, small }: { name?: string; small?: boolean }) {
   if (!name) return null;
@@ -37,6 +38,18 @@ export function DayStrip({ days, isSelected, onPick }: { days: Day[]; isSelected
         </button>
       ))}
     </div>
+  );
+}
+
+const URL_RE = /(https?:\/\/[^\s<>"']+[^\s<>"'.,;:!?)\]])/g;
+
+/** Testo con i link cliccabili (note di tappe, giorni e prenotazioni). */
+export function Linked({ text }: { text: string }) {
+  return (
+    <>
+      {text.split(URL_RE).map((part, i) =>
+        i % 2 ? <a key={i} href={part} target="_blank" rel="noopener">{part.replace(/^https?:\/\/(www\.)?/, "").slice(0, 40)}{part.length > 48 ? "…" : ""}</a> : part)}
+    </>
   );
 }
 
@@ -103,17 +116,34 @@ export function VoteControls({ stop, onVote }: { stop: Stop; onVote: (choice: "y
 
 /** Pulsante con conferma integrata (al posto di confirm(), che sui telefoni è scomodo). */
 export function ConfirmButton({ className, label, confirmLabel, onConfirm }: { className?: string; label: string; confirmLabel: string; onConfirm: () => void }) {
-  const armed = useRef(false);
+  const [armed, setArmed] = useState(false);
+  // Dopo 3 secondi senza il secondo tocco si torna allo stato normale.
+  useEffect(() => {
+    if (!armed) return;
+    const t = window.setTimeout(() => setArmed(false), 3000);
+    return () => window.clearTimeout(t);
+  }, [armed]);
   return (
     <button
       type="button"
       className={className}
-      onClick={(e) => {
-        if (!armed.current) { armed.current = true; e.currentTarget.textContent = confirmLabel; return; }
+      onClick={() => {
+        if (!armed) { setArmed(true); return; }
+        setArmed(false);
         onConfirm();
       }}
-    >{label}</button>
+    >{armed ? confirmLabel : label}</button>
   );
 }
 
 export const isTraveler = (n: string | null | undefined): n is Traveler => !!n && (TRAVELERS as readonly string[]).includes(n);
+
+/** Copia negli appunti; se il browser non lo permette, mostra almeno il testo. */
+export function copyText(text: string, toast: (m: string) => void) {
+  if (!navigator.clipboard) { toast(text); return; }
+  navigator.clipboard.writeText(text).then(() => toast("Copiato: " + text), () => toast(text));
+}
+
+/** Pannello "Mostra al tassista" con l'indirizzo in giapponese. */
+export const taxiSheet = (name: string, addressJp: string): SheetState =>
+  ({ kind: "big", title: `Al tassista · ${name}`, jp: addressJp, sub: "ここまでお願いします · Mi porti qui, per favore" });

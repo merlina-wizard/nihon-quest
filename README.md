@@ -63,7 +63,7 @@ Il codice resta salvato sul telefono. "Esci da questo viaggio" nelle impostazion
 npm install
 cp .env.example .env.local   # e compila i valori di Firebase
 npm run dev                  # http://localhost:5173
-npm test                     # voti, spese, coordinate
+npm test                     # voti, spese, coordinate, card "Adesso", meteo
 npm run build                # typecheck + build in dist/
 ```
 
@@ -75,7 +75,12 @@ Per lo sviluppo in locale va bene lo stesso progetto Firebase: `localhost` è gi
 - **Wishlist:** le idee senza giorno si salvano senza voto; "Metti in un giorno" crea una proposta.
 - **Spese:** in yen o euro, divise tra chi partecipa. "Saldato" registra un rimborso che pareggia i conti.
 - **Trova posizione:** cerca le coordinate su OpenStreetMap (Nominatim). In alternativa si incolla un link lungo di Google Maps nel campo Posizione.
+- **Adesso:** nei giorni del viaggio, in cima a Giorni c'è la prossima tappa con "Portami lì" e la prossima prenotazione con il codice.
+- **Senza rete:** l'app si apre anche offline. Dati, tile della mappa già viste e biglietti già aperti restano sul telefono, e le modifiche partono appena torna la rete. Quando esce una nuova versione compare "Aggiorna".
+- **Foto:** scontrini sulle spese e biglietti/QR sulle prenotazioni, ridotti sul telefono e salvati su Firestore (niente Firebase Storage, si resta sul piano gratuito). Il backup JSON non le contiene.
+- **Tassista e frasi:** con l'indirizzo in giapponese nel giorno o nella prenotazione, "🚕 Tassista" lo mostra in grande; le frasi si possono ascoltare se il telefono ha la voce giapponese.
+- **Meteo e cambio:** previsioni da Open-Meteo (da circa 16 giorni prima) e cambio del giorno da Frankfurter (BCE), entrambi gratuiti e senza chiave.
 
 ## Costi
 
-Firebase Spark e GitHub Pages sono gratuiti; per tre persone si resta molto sotto i limiti. Le tile di OpenStreetMap sono gratuite con uso leggero come questo.
+Firebase Spark e GitHub Pages sono gratuiti; per tre persone si resta molto sotto i limiti (anche con le foto: 1 GB di Firestore sono migliaia di scontrini). Le tile di OpenStreetMap sono gratuite con uso leggero come questo.

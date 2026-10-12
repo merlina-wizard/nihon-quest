@@ -20,14 +20,20 @@ src/
   types.ts           modello dati (Stop, Day, Expense, Booking, TripMeta, Proposal)
   views/             una vista per scheda: Days, Map, Votes, Expenses, Kit
   components/
-    Sheets.tsx       tutti i bottom sheet: dettaglio tappa, form, impostazioni, import/export
-    bits.tsx         piccoli componenti condivisi (Avatar, TypeBadge, DayStrip, VoteControls…)
+    Sheets.tsx       tutti i bottom sheet: dettaglio tappa, form, impostazioni, import/export, testo grande (frasi, tassista)
+    Photos.tsx       foto di scontrini e biglietti: caricamento, miniature, visore a tutto schermo
+    bits.tsx         piccoli componenti condivisi (Avatar, TypeBadge, DayStrip, VoteControls, Linked…)
   lib/
     db.ts            unico punto che parla con Firestore (letture, scritture, voto in transazione, import/export)
     firebase.ts      init Firebase, cache locale persistente, login anonimo
     votes.ts         logica pura del voto (applyVote) — testata
-    money.ts         saldi e rimborsi — testata
-    geo.ts           link Google Maps, parsing coordinate, geocoding Nominatim
+    money.ts         saldi, rimborsi, riepilogo spese — testata; cambio dal web (Frankfurter)
+    geo.ts           link Google Maps, parsing coordinate, distanze, geocoding Nominatim
+    today.ts         card "Adesso": prossima tappa, prenotazioni del giorno — testata
+    weather.ts       previsioni Open-Meteo per la città del giorno (cache 3 ore)
+    position.ts      hook useHere (posizione del telefono, condivisa tra le viste)
+    device.ts        schermo sempre acceso, voce giapponese
+    image.ts         compressione delle foto prima del salvataggio
     format.ts        date (fuso Asia/Tokyo per "oggi"), yen/euro, numeri all'italiana
     constants.ts     tipi di tappa, città, categorie spese
   content/kit.ts     frasi, numeri d'emergenza, consigli (contenuti statici)
@@ -38,16 +44,20 @@ scripts/md-to-json.py  converte l'itinerario Markdown nel JSON da importare (coo
 
 ## Modello dati (Firestore)
 
-Tutto sta sotto `trips/{codice}/{collection}/{id}`; le collection ammesse sono `days`, `stops`, `expenses`, `bookings`, `meta` (doc `meta/trip`). Se aggiungi una collection, aggiorna anche `firestore.rules` e `Coll` in `lib/db.ts`, e ricorda a Marty di ripubblicare le regole nella console.
+Tutto sta sotto `trips/{codice}/{collection}/{id}`; le collection ammesse sono `days`, `stops`, `expenses`, `bookings`, `meta` (doc `meta/trip`), `photos`. Se aggiungi una collection, aggiorna anche `firestore.rules` e `Coll` in `lib/db.ts`, e ricorda a Marty di ripubblicare le regole nella console.
 
-- `days/{YYYY-MM-DD}`: città, titolo, hotel, note.
+- `days/{YYYY-MM-DD}`: città, titolo, hotel, `hotelAddressJp` (per il tassista), note.
 - `stops/{id}`: `status` è `ok` (nel programma), `proposed` (nuova, con `proposal`) o `idea` (wishlist, `dayId` vuoto). Può avere `pendingEdit` (modifica o eliminazione in votazione). `lat`/`lng` sono opzionali: senza, "Portami lì" cerca per nome.
 - `expenses/{id}`: `amount` + `currency` (`JPY` o `EUR`), `paidBy`, `split`; `kind: "settle"` per i rimborsi.
-- Il cambio (yen per euro) è in `meta/trip.rate`.
+- `bookings/{id}`: può avere `addressJp` e `photos`.
+- `photos/{id}`: `data` (JPEG base64, max ~800 KB), `w`, `h`. Non ha un listener: si legge su richiesta (`loadPhoto`, prima dalla cache). Spese e prenotazioni tengono gli id in `photos`.
+- Il cambio (yen per euro) è in `meta/trip.rate`, il budget al giorno a persona in `meta/trip.dailyBudget`.
 
 ## Regole del progetto
 
-- Reset: `clearCollections` e `replaceItinerary` in `lib/db.ts` toccano solo `days`, `stops`, `bookings` (`ITINERARY_COLLS`). Spese e cambio non si cancellano mai da lì.
+- Reset: `clearCollections` e `replaceItinerary` in `lib/db.ts` toccano solo `days`, `stops`, `bookings` (`ITINERARY_COLLS`) e le foto delle prenotazioni. Spese (con i loro scontrini) e cambio non si cancellano mai da lì. Il backup JSON non contiene le foto.
+- `run()` non aspetta il server più di 4 secondi: senza rete la scrittura resta in coda nella cache di Firestore. Per i nuovi documenti l'id si genera una volta sola nel modulo, così un doppio tocco non crea doppioni.
+- Il service worker (`vite-plugin-pwa`, config in `vite.config.ts`) mette in cache app, font e tile della mappa già viste. I pannelli e il visore foto hanno una voce nella cronologia: Indietro li chiude.
 - Le scritture passano da `lib/db.ts` e dalla funzione `run()` dello store, che mostra il toast e gestisce gli errori.
 - Le regole dei voti stanno in `lib/votes.ts`: se le cambi, aggiorna i test.
 - Niente dati del viaggio nel repository (è pubblico): i dati vivono solo su Firestore. I file `*-dati.json` sono in `.gitignore`.

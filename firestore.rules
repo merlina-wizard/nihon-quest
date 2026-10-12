@@ -10,10 +10,15 @@ service cloud.firestore {
       function allowed() {
         return request.auth != null
           && trip.size() >= 12
-          && coll in ['days', 'stops', 'expenses', 'bookings', 'meta'];
+          && coll in ['days', 'stops', 'expenses', 'bookings', 'meta', 'photos'];
+      }
+      // Le foto (scontrini, biglietti) sono JPEG compressi in base64: massimo ~900 KB di testo.
+      function photoOk() {
+        return coll != 'photos'
+          || (request.resource.data.data is string && request.resource.data.data.size() < 900000);
       }
       allow read, delete: if allowed();
-      allow create, update: if allowed() && request.resource.data.size() < 200;
+      allow create, update: if allowed() && request.resource.data.size() < 200 && photoOk();
     }
 
     // Tutto il resto è chiuso.

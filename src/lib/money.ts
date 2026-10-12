@@ -37,3 +37,39 @@ export function balances(expenses: Expense[], rate: number) {
   }
   return { spent, transfers, balance: bal };
 }
+
+const shareOf = (e: Expense, rate: number) => toJPY(e, rate) / (e.split?.length ? e.split.length : TRAVELERS.length);
+const splitOf = (e: Expense): Traveler[] => (e.split?.length ? e.split : [...TRAVELERS]);
+
+/**
+ * Riepilogo delle spese vere (i rimborsi non contano), in yen:
+ * totale, per categoria (dalla più alta), per giorno (in ordine) e media per giorno con spese.
+ */
+export function summary(expenses: Expense[], rate: number) {
+  const real = expenses.filter((e) => e.kind !== "settle");
+  const cats: Record<string, number> = {}, days: Record<string, number> = {};
+  let total = 0;
+  for (const e of real) {
+    const a = toJPY(e, rate);
+    total += a;
+    cats[e.cat || "altro"] = (cats[e.cat || "altro"] || 0) + a;
+    days[e.date || ""] = (days[e.date || ""] || 0) + a;
+  }
+  const byCat = Object.entries(cats).map(([cat, amount]) => ({ cat, amount })).sort((a, b) => b.amount - a.amount);
+  const byDay = Object.entries(days).map(([date, amount]) => ({ date, amount })).sort((a, b) => a.date.localeCompare(b.date));
+  const dated = byDay.filter((d) => d.date).length;
+  return { total, byCat, byDay, avgPerDay: dated ? byDay.filter((d) => d.date).reduce((t, d) => t + d.amount, 0) / dated : 0 };
+}
+
+/** La parte di una persona nelle spese di un giorno (per il budget giornaliero). */
+export const shareOn = (expenses: Expense[], rate: number, who: Traveler, date: string) =>
+  expenses.filter((e) => e.kind !== "settle" && e.date === date && splitOf(e).includes(who)).reduce((t, e) => t + shareOf(e, rate), 0);
+
+/** Cambio euro → yen di oggi (Banca Centrale Europea, via Frankfurter). */
+export async function fetchRate(): Promise<number> {
+  const r = await fetch("https://api.frankfurter.dev/v1/latest?base=EUR&symbols=JPY");
+  if (!r.ok) throw new Error("cambio " + r.status);
+  const j = (await r.json()) as { rates?: { JPY?: number } };
+  if (!j.rates?.JPY) throw new Error("cambio assente");
+  return j.rates.JPY;
+}

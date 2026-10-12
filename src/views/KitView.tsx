@@ -1,7 +1,8 @@
-import { useState } from "react";
-import { Empty } from "../components/bits";
+import { useEffect, useState } from "react";
+import { PhotoViewer, preloadPhotos } from "../components/Photos";
+import { copyText, Empty, Linked, taxiSheet } from "../components/bits";
 import { BTYPES } from "../lib/constants";
-import { fmtShort } from "../lib/format";
+import { dt, fmtShort, todayTokyo, ymd } from "../lib/format";
 import { mapsLink } from "../lib/geo";
 import { local } from "../lib/storage";
 import { CHECKLIST, EMERGENCY, PHRASES, TIPS } from "../content/kit";
@@ -55,13 +56,17 @@ function Checklist() {
   );
 }
 
-function copy(text: string, toast: (m: string) => void) {
-  navigator.clipboard?.writeText(text).then(() => toast("Copiato: " + text), () => toast(text));
-}
-
 function Bookings() {
-  const { bookings, toast } = useTrip();
+  const { bookings, toast, code } = useTrip();
   const { open } = useUi();
+  const [view, setView] = useState<string[] | null>(null);
+  // I biglietti di oggi e domani si scaricano subito: così si aprono anche senza rete all'ingresso.
+  const soon = bookings.filter((b) => {
+    const t = todayTokyo(), tomorrow = ymd("Asia/Tokyo", new Date(dt(t).getTime() + 864e5));
+    return b.photos?.length && (b.date === t || b.date === tomorrow || (b.date <= t && t <= (b.endDate || "")));
+  }).flatMap((b) => b.photos || []);
+  const soonKey = soon.join(",");
+  useEffect(() => { if (soon.length) preloadPhotos(code, soon); }, [code, soonKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const list = bookings.slice().sort((a, b) =>
     String(a.date || "9").localeCompare(String(b.date || "9")) || String(a.time || "").localeCompare(String(b.time || "")));
   return (
@@ -76,21 +81,24 @@ function Bookings() {
               <span className="kind">{t.icon} {t.label}</span>
               <b className="tt">{b.title}</b>
               {when && <span className="when num">{when}</span>}
-              {b.details && <span className="det">{b.details}</span>}
+              {b.details && <span className="det"><Linked text={b.details} /></span>}
               <div className="row" style={{ marginTop: 4 }}>
                 {b.place && <a className="btn small" href={mapsLink({ place: b.place })} target="_blank" rel="noopener">Portami lì</a>}
+                {b.addressJp && <button className="btn small" onClick={() => open(taxiSheet(b.title, b.addressJp!))}>🚕 Tassista</button>}
+                {!!b.photos?.length && <button className="btn small" onClick={() => setView(b.photos!)}>🎫 Biglietto</button>}
                 <button className="btn small ghost" onClick={() => open({ kind: "booking", id: b.id })}>Modifica</button>
               </div>
             </div>
             <div className="r">
               <span className="eyebrow">Codice</span>
               {b.code ? (
-                <><span className="code">{b.code}</span><button className="btn small" onClick={() => copy(b.code, toast)}>Copia</button></>
+                <><span className="code">{b.code}</span><button className="btn small" onClick={() => copyText(b.code, toast)}>Copia</button></>
               ) : <span className="muted" style={{ fontSize: 12, textAlign: "center" }}>da aggiungere</span>}
             </div>
           </article>
         );
       }) : <Empty title="Nessuna prenotazione salvata.">Aggiungete voli, hotel e biglietti con i codici.</Empty>}
+      {view && <PhotoViewer ids={view} onClose={() => setView(null)} />}
     </>
   );
 }
@@ -99,11 +107,11 @@ function Phrases() {
   const { open } = useUi();
   return (
     <>
-      {PHRASES.map(([g, ps], gi) => (
+      {PHRASES.map(([g, ps]) => (
         <div key={g} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <div className="daylabel">{g}</div>
           {ps.map((p, pi) => (
-            <button key={pi} className="phrase" onClick={() => open({ kind: "phrase", group: gi, index: pi })}>
+            <button key={pi} className="phrase" onClick={() => open({ kind: "big", title: p[0], jp: p[1], sub: p[2] })}>
               <span className="it">{p[0]}</span><span className="jp" lang="ja">{p[1]}</span><span className="ro">{p[2]}</span><span className="go">Mostra</span>
             </button>
           ))}
@@ -127,7 +135,7 @@ function Sos() {
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             <a className="btn small" href={`tel:${e.number.replace(/[^+\d]/g, "")}`}>Chiama</a>
-            <button className="btn small ghost" onClick={() => copy(e.number, toast)}>Copia</button>
+            <button className="btn small ghost" onClick={() => copyText(e.number, toast)}>Copia</button>
           </div>
         </div>
       ))}

@@ -51,6 +51,8 @@ export interface Day {
   city: string;
   title: string;
   hotel: string;
+  /** Indirizzo dell'hotel in giapponese, da mostrare al tassista. */
+  hotelAddressJp?: string;
   notes: string;
   updatedBy?: string;
 }
@@ -66,6 +68,8 @@ export interface Expense {
   date: string;
   /** "settle" = rimborso tra due persone per pareggiare i conti. */
   kind?: "settle";
+  /** Id delle foto (scontrini) in photos/{id}. */
+  photos?: string[];
   createdBy?: string;
   createdAt?: string;
   updatedBy?: string;
@@ -82,7 +86,11 @@ export interface Booking {
   endDate: string;
   code: string;
   place: string;
+  /** Indirizzo in giapponese, da mostrare al tassista. */
+  addressJp?: string;
   details: string;
+  /** Id delle foto (biglietti, QR, conferme) in photos/{id}. */
+  photos?: string[];
   createdBy?: string;
   createdAt?: string;
   updatedBy?: string;
@@ -92,7 +100,19 @@ export interface TripMeta {
   /** Quanti yen per 1 euro. */
   rate: number;
   rateDate?: string;
+  /** Budget al giorno a persona, in yen (facoltativo). */
+  dailyBudget?: number;
   updatedBy?: string;
+}
+
+/** Una foto compressa (JPEG in base64), in photos/{id}. */
+export interface Photo {
+  id: string;
+  data: string;
+  w: number;
+  h: number;
+  createdBy?: string;
+  createdAt?: string;
 }
 
 export type Tab = "giorni" | "mappa" | "voti" | "spese" | "kit";

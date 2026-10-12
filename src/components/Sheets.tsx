@@ -1,18 +1,20 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { Avatar, ConfirmButton, EditDiff, TypeBadge, VoteControls } from "./bits";
-import { BTYPES, ECATS, TYPES, typeOf } from "../lib/constants";
+import { useEffect, useRef, useState, type FormEvent, type PointerEvent, type ReactNode } from "react";
+import { Avatar, ConfirmButton, EditDiff, Linked, TypeBadge, VoteControls } from "./bits";
+import { BTYPES, DEFAULT_RATE, ECATS, TYPES, typeOf } from "../lib/constants";
 import { fmtDay, fmtShort, nowIso, parseNum, todayTokyo } from "../lib/format";
 import { geocode, hasPos, mapsLink, parseCoords } from "../lib/geo";
 import {
-  clearCollections, exportAll, importAll, ITINERARY_COLLS, newId, removeDoc, replaceItinerary,
-  saveBooking, saveDay, saveExpense, saveMeta, saveStop, type ExportFile,
+  clearCollections, exportAll, importAll, ITINERARY_COLLS, newId, removeDoc, removeWithPhotos, replaceItinerary,
+  restoreWithPhotos, saveBooking, saveDay, saveExpense, saveMeta, saveStop, type ExportFile,
 } from "../lib/db";
 import { newProposal } from "../lib/votes";
-import { PHRASES } from "../content/kit";
+import { fetchRate } from "../lib/money";
+import { speakJa, useJaVoice, useWakeLock } from "../lib/device";
 import { useVote } from "../views/VotesView";
-import { useTrip } from "../store";
+import { useToggleDone, useTrip } from "../store";
+import { PhotoField, usePhotoDraft } from "./Photos";
 import { useUi, type SheetState } from "../ui";
-import { TRAVELERS, type Booking, type BookingType, type Expense, type Proposal, type Stop, type StopType, type Traveler } from "../types";
+import { TRAVELERS, type Booking, type BookingType, type Expense, type Photo, type Proposal, type Stop, type StopType, type Traveler } from "../types";
 
 export function SheetHost({ sheet }: { sheet: SheetState }) {
   const { close } = useUi();
@@ -23,12 +25,31 @@ export function SheetHost({ sheet }: { sheet: SheetState }) {
     document.body.style.overflow = "hidden";
     return () => { document.removeEventListener("keydown", onKey); document.body.style.overflow = ""; };
   }, [sheet, close]);
+  // Trascinando la maniglia verso il basso il pannello si chiude.
+  const panel = useRef<HTMLDivElement>(null);
+  const drag = useRef<{ y: number; dy: number } | null>(null);
+  const onDown = (e: PointerEvent<HTMLDivElement>) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    drag.current = { y: e.clientY, dy: 0 };
+    if (panel.current) panel.current.style.transition = "none";
+  };
+  const onMove = (e: PointerEvent<HTMLDivElement>) => {
+    if (!drag.current || !panel.current) return;
+    drag.current.dy = Math.max(0, e.clientY - drag.current.y);
+    panel.current.style.transform = `translateY(${drag.current.dy}px)`;
+  };
+  const onUp = () => {
+    const dy = drag.current?.dy ?? 0;
+    drag.current = null;
+    if (dy > 90) { close(); return; }
+    if (panel.current) { panel.current.style.transition = ""; panel.current.style.transform = ""; }
+  };
   if (!sheet) return null;
   return (
     <div className="sheet">
       <button className="sheet-bg" aria-label="Chiudi" onClick={close} />
-      <div className="sheet-panel" role="dialog" aria-modal="true">
-        <div className="grab" />
+      <div className="sheet-panel" role="dialog" aria-modal="true" ref={panel}>
+        <div className="grab-zone" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} aria-hidden="true"><div className="grab" /></div>
         <SheetBody sheet={sheet} />
       </div>
     </div>
@@ -44,7 +65,7 @@ function SheetBody({ sheet }: { sheet: NonNullable<SheetState> }) {
     case "expense": return <ExpenseForm id={sheet.id} />;
     case "booking": return <BookingForm id={sheet.id} />;
     case "settings": return <Settings />;
-    case "phrase": return <PhraseBig group={sheet.group} index={sheet.index} />;
+    case "big": return <BigText title={sheet.title} jp={sheet.jp} sub={sheet.sub} />;
   }
 }
 
@@ -56,6 +77,7 @@ function StopDetail({ id }: { id: string }) {
   const { stops, days, code, me, run, toast } = useTrip();
   const { open, close } = useUi();
   const doVote = useVote();
+  const toggleDone = useToggleDone();
   const [busy, setBusy] = useState(false);
   const s = stops.find((x) => x.id === id);
   useEffect(() => { if (!s) close(); }, [s, close]);
@@ -76,7 +98,7 @@ function StopDetail({ id }: { id: string }) {
 
   const proposeDelete = () => {
     if (!me) return;
-    if (s.status === "idea") { run(() => removeDoc(code, "stops", s.id), "Idea eliminata.").then((ok) => ok && close()); return; }
+    if (s.status === "idea") { run(() => removeDoc(code, "stops", s.id), "Idea eliminata.", () => saveStop(code, s)).then((ok) => ok && close()); return; }
     run(() => saveStop(code, { ...s, pendingEdit: newProposal(me, { remove: true }) }), "Proposta inviata: serve un altro sì.");
   };
 
@@ -93,13 +115,13 @@ function StopDetail({ id }: { id: string }) {
           <dt>Mappa</dt><dd>{hasPos(s) ? <>Sulla mappa <span className="muted num">({s.lat!.toFixed(4)}, {s.lng!.toFixed(4)})</span></> : "Non sulla mappa: Portami lì cerca per nome"}</dd>
           {s.url && <><dt>Link</dt><dd><a href={s.url} target="_blank" rel="noopener">{s.url.replace(/^https?:\/\//, "").slice(0, 40)}</a></dd></>}
         </dl>
-        {s.notes && <div className="notes">{s.notes}</div>}
+        {s.notes && <div className="notes"><Linked text={s.notes} /></div>}
         {prop && <><div className="diff"><b>Proposta di {s.proposal?.by}: entra nel programma con 2 sì su 3.</b></div><VoteControls stop={s} onVote={(c) => doVote(s, c)} /></>}
         {s.pendingEdit && <><div className="eyebrow">Modifica proposta da {s.pendingEdit.by}</div><EditDiff stop={s} /><VoteControls stop={s} onVote={(c) => doVote(s, c)} /></>}
         <div className="actions">
           <a className="btn primary wide" href={mapsLink(s)} target="_blank" rel="noopener">Portami lì</a>
           {!prop && s.dayId && (
-            <button className="btn" onClick={() => run(() => saveStop(code, { ...s, done: !s.done }))}>{s.done ? "Da rifare" : "✓ Fatta"}</button>
+            <button className="btn" onClick={() => toggleDone(s)}>{s.done ? "Da rifare" : "✓ Fatta"}</button>
           )}
           {!s.pendingEdit && <button className="btn" onClick={() => open({ kind: "stopForm", id: s.id })}>Modifica</button>}
           {!hasPos(s) && <button className="btn" disabled={busy} onClick={findPos}>{busy ? "Cerco…" : "📍 Trova posizione"}</button>}
@@ -243,7 +265,7 @@ function DayForm({ id }: { id: string }) {
   const { days, code, me, run } = useTrip();
   const { close } = useUi();
   const d = days.find((x) => x.id === id);
-  const [f, setF] = useState({ city: d?.city || "", title: d?.title || "", hotel: d?.hotel || "", notes: d?.notes || "" });
+  const [f, setF] = useState({ city: d?.city || "", title: d?.title || "", hotel: d?.hotel || "", hotelAddressJp: d?.hotelAddressJp || "", notes: d?.notes || "" });
   if (!d) return null;
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
   return (
@@ -258,6 +280,8 @@ function DayForm({ id }: { id: string }) {
           <label className="f">Titolo<input className="inp" id="d_title" value={f.title} onChange={set("title")} /></label>
         </div>
         <label className="f">Dove si dorme<input className="inp" id="d_hotel" value={f.hotel} onChange={set("hotel")} /></label>
+        <label className="f">Indirizzo in giapponese <small>Per il tassista: copialo dalla conferma o dal sito dell'hotel.</small>
+          <input className="inp" id="d_addr" lang="ja" value={f.hotelAddressJp} onChange={set("hotelAddressJp")} placeholder="東京都中央区日本橋…" /></label>
         <label className="f">Note del giorno<textarea className="inp" id="d_notes" value={f.notes} onChange={set("notes")} /></label>
         <button className="btn primary block" type="submit">Salva</button>
       </form>
@@ -277,6 +301,9 @@ function ExpenseForm({ id }: { id?: string }) {
     cat: e0?.cat || "cibo", date: e0?.date || todayTokyo(),
   });
   const [err, setErr] = useState<string | null>(null);
+  const photos = usePhotoDraft(e0?.photos);
+  // Id fisso: se si tocca Salva due volte (o senza rete) non si crea una spesa doppia.
+  const [docId] = useState(() => e0?.id || newId());
 
   const submit = async (ev: FormEvent) => {
     ev.preventDefault();
@@ -287,11 +314,18 @@ function ExpenseForm({ id }: { id?: string }) {
     if (!f.split.length) { setErr("Scegli almeno una persona tra cui dividere."); return; }
     const doc: Expense = {
       ...(e0 || { createdBy: me || undefined, createdAt: nowIso() }),
-      id: e0?.id || newId(), title, amount, currency: f.currency as Expense["currency"], paidBy: f.paidBy,
-      split: f.split, cat: settle ? "altro" : f.cat, date: f.date, updatedBy: me || undefined,
+      id: docId, title, amount, currency: f.currency as Expense["currency"], paidBy: f.paidBy,
+      split: f.split, cat: settle ? "altro" : f.cat, date: f.date, updatedBy: me || undefined, photos: photos.ids,
       ...(settle ? { kind: "settle" as const } : {}),
     };
-    if (await run(() => saveExpense(code, doc), "Spesa salvata.")) close();
+    if (await run(() => saveExpense(code, doc), "Spesa salvata.")) { photos.commit(); close(); }
+  };
+
+  const remove = () => {
+    if (!e0) return;
+    let saved: Photo[] = [];
+    run(async () => { saved = await removeWithPhotos(code, "expenses", e0); }, "Spesa eliminata.", () => restoreWithPhotos(code, "expenses", e0, saved))
+      .then((ok) => ok && close());
   };
 
   return (
@@ -328,10 +362,10 @@ function ExpenseForm({ id }: { id?: string }) {
           </>
         )}
         <label className="f">Data<input className="inp" type="date" id="e_date" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} /></label>
+        {!settle && <PhotoField draft={photos} label="Scontrino" hint="Facoltativo: fino a 3 foto." />}
         <Err msg={err} />
-        <button className="btn primary block" type="submit">Salva</button>
-        {e0 && <ConfirmButton className="btn no block" label="Elimina" confirmLabel="Tocca di nuovo per eliminare"
-          onConfirm={() => run(() => removeDoc(code, "expenses", e0.id), "Spesa eliminata.").then((ok) => ok && close())} />}
+        <button className="btn primary block" type="submit" disabled={photos.busy}>Salva</button>
+        {e0 && <ConfirmButton className="btn no block" label="Elimina" confirmLabel="Tocca di nuovo per eliminare" onConfirm={remove} />}
       </form>
     </>
   );
@@ -344,10 +378,19 @@ function BookingForm({ id }: { id?: string }) {
   const b0 = id ? bookings.find((x) => x.id === id) : undefined;
   const [f, setF] = useState({
     type: (b0?.type || "biglietto") as BookingType, title: b0?.title || "", date: b0?.date || "", time: b0?.time || "",
-    endDate: b0?.endDate || "", code: b0?.code || "", place: b0?.place || "", details: b0?.details || "",
+    endDate: b0?.endDate || "", code: b0?.code || "", place: b0?.place || "", addressJp: b0?.addressJp || "", details: b0?.details || "",
   });
   const [err, setErr] = useState<string | null>(null);
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
+  const photos = usePhotoDraft(b0?.photos);
+  const [docId] = useState(() => b0?.id || newId());
+
+  const remove = () => {
+    if (!b0) return;
+    let saved: Photo[] = [];
+    run(async () => { saved = await removeWithPhotos(code, "bookings", b0); }, "Prenotazione eliminata.", () => restoreWithPhotos(code, "bookings", b0, saved))
+      .then((ok) => ok && close());
+  };
 
   return (
     <>
@@ -357,9 +400,9 @@ function BookingForm({ id }: { id?: string }) {
         if (!f.title.trim()) { setErr("Dai un nome alla prenotazione."); return; }
         const doc: Booking = {
           ...(b0 || { createdBy: me || undefined, createdAt: nowIso() }),
-          id: b0?.id || newId(), ...f, title: f.title.trim(), code: f.code.trim(), updatedBy: me || undefined,
+          id: docId, ...f, title: f.title.trim(), code: f.code.trim(), updatedBy: me || undefined, photos: photos.ids,
         };
-        if (await run(() => saveBooking(code, doc), "Prenotazione salvata.")) close();
+        if (await run(() => saveBooking(code, doc), "Prenotazione salvata.")) { photos.commit(); close(); }
       }}>
         <div className="f" style={{ fontSize: 13, fontWeight: 800 }}>Tipo
           <div className="pick" style={{ marginTop: 5 }}>
@@ -374,11 +417,13 @@ function BookingForm({ id }: { id?: string }) {
         <label className="f">Fino al <small>per hotel e pass di più giorni</small><input className="inp" type="date" id="b_end" value={f.endDate} onChange={set("endDate")} /></label>
         <label className="f">Codice di conferma<input className="inp" id="b_code" value={f.code} onChange={set("code")} autoCapitalize="characters" /></label>
         <label className="f">Luogo o indirizzo<input className="inp" id="b_place" value={f.place} onChange={set("place")} /></label>
+        <label className="f">Indirizzo in giapponese <small>Facoltativo, da mostrare al tassista.</small>
+          <input className="inp" id="b_addr" lang="ja" value={f.addressJp} onChange={set("addressJp")} /></label>
         <label className="f">Dettagli<textarea className="inp" id="b_details" value={f.details} onChange={set("details")} placeholder="Terminal, posti, cosa portare…" /></label>
+        <PhotoField draft={photos} label="Biglietto o conferma" hint="Foto o screenshot del QR, fino a 3." />
         <Err msg={err} />
-        <button className="btn primary block" type="submit">Salva</button>
-        {b0 && <ConfirmButton className="btn no block" label="Elimina" confirmLabel="Tocca di nuovo per eliminare"
-          onConfirm={() => run(() => removeDoc(code, "bookings", b0.id), "Prenotazione eliminata.").then((ok) => ok && close())} />}
+        <button className="btn primary block" type="submit" disabled={photos.busy}>Salva</button>
+        {b0 && <ConfirmButton className="btn no block" label="Elimina" confirmLabel="Tocca di nuovo per eliminare" onConfirm={remove} />}
       </form>
     </>
   );
@@ -468,7 +513,9 @@ function ResetZone({ onBackup }: { onBackup: () => void }) {
 function Settings() {
   const { me, setMe, meta, code, run, toast, leave } = useTrip();
   const { close } = useUi();
-  const [rate, setRate] = useState(String(meta.rate || 177));
+  const [rate, setRate] = useState(String(meta.rate || DEFAULT_RATE));
+  const [rateBusy, setRateBusy] = useState(false);
+  const [budget, setBudget] = useState(meta.dailyBudget ? String(meta.dailyBudget) : "");
   const [busy, setBusy] = useState(false);
 
   const doImport = async (file: File) => {
@@ -506,11 +553,22 @@ function Settings() {
           e.preventDefault();
           const r = parseNum(rate);
           if (!isFinite(r) || r < 50 || r > 400) { toast("Inserisci un cambio plausibile, es. 177."); return; }
-          if (await run(() => saveMeta(code, { ...meta, rate: r, rateDate: todayTokyo(), updatedBy: me || undefined }), "Cambio aggiornato.")) close();
+          const b = budget.trim() ? parseNum(budget) : 0;
+          if (!isFinite(b) || b < 0) { toast("Il budget è un importo in yen, es. 15000."); return; }
+          const next = { ...meta, rate: r, rateDate: r !== meta.rate ? todayTokyo() : meta.rateDate, dailyBudget: b || undefined, updatedBy: me || undefined };
+          if (await run(() => saveMeta(code, next), "Impostazioni salvate.")) close();
         }}>
           <label className="f">Cambio: quanti yen per 1 euro<input className="inp num" id="r_rate" inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)} /></label>
+          <button className="btn small" type="button" disabled={rateBusy} style={{ marginTop: 8 }} onClick={async () => {
+            setRateBusy(true);
+            try { const r = await fetchRate(); setRate(String(Math.round(r * 10) / 10).replace(".", ",")); toast("Cambio di oggi inserito: ora salvalo."); }
+            catch { toast("Non riesco a leggere il cambio: controlla la connessione."); }
+            finally { setRateBusy(false); }
+          }}>{rateBusy ? "Cerco…" : "Prendi il cambio di oggi"}</button>
           <p className="hint">Vale per tutti e tre{meta.rateDate ? `, ultimo aggiornamento ${fmtShort(meta.rateDate)}` : ""}.</p>
-          <button className="btn block" type="submit">Salva il cambio</button>
+          <label className="f">Budget al giorno a persona, in yen <small>Facoltativo: nelle spese vedi quanto hai speso oggi rispetto al budget.</small>
+            <input className="inp num" id="r_budget" inputMode="numeric" value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="Es. 15000" /></label>
+          <button className="btn block" type="submit" style={{ marginTop: 10 }}>Salva cambio e budget</button>
         </form>
         <div className="eyebrow">Dati del viaggio</div>
         <div className="actions">
@@ -520,7 +578,7 @@ function Settings() {
           </label>
           <button className="btn" onClick={doExport}>Scarica backup</button>
         </div>
-        <p className="hint">"Importa JSON" aggiunge o aggiorna gli elementi del file, senza cancellare gli altri.</p>
+        <p className="hint">"Importa JSON" aggiunge o aggiorna gli elementi del file, senza cancellare gli altri. Il backup non contiene le foto di scontrini e biglietti.</p>
         <ResetZone onBackup={doExport} />
         <ConfirmButton className="btn ghost block" label="Esci da questo viaggio" confirmLabel="Tocca di nuovo per uscire" onConfirm={() => { close(); leave(); }} />
       </div>
@@ -528,16 +586,20 @@ function Settings() {
   );
 }
 
-function PhraseBig({ group, index }: { group: number; index: number }) {
+/** Testo giapponese grande da mostrare a qualcuno: lo schermo resta acceso e si può ascoltare. */
+function BigText({ title, jp, sub }: { title: string; jp: string; sub?: string }) {
   const { close } = useUi();
-  const p = PHRASES[group]?.[1][index];
-  if (!p) return null;
+  const voice = useJaVoice();
+  useWakeLock();
   return (
     <div className="sh-body">
-      <p className="muted" style={{ textAlign: "center", margin: 0 }}>{p[0]}</p>
-      <div className="bigjp" lang="ja">{p[1]}</div>
-      <p style={{ textAlign: "center", margin: 0, fontWeight: 800 }}>{p[2]}</p>
-      <button className="btn block" onClick={close}>Chiudi</button>
+      <p className="muted" style={{ textAlign: "center", margin: 0 }}>{title}</p>
+      <div className="bigjp" lang="ja">{jp}</div>
+      {sub && <p style={{ textAlign: "center", margin: 0, fontWeight: 800 }}>{sub}</p>}
+      <div className="actions">
+        {voice && <button className="btn wide" onClick={() => speakJa(jp, voice)}>🔊 Ascolta</button>}
+        <button className="btn wide" onClick={close}>Chiudi</button>
+      </div>
     </div>
   );
 }

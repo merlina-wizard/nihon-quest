@@ -1,17 +1,17 @@
 import {
-  collection, deleteDoc, doc, getDocs, onSnapshot, runTransaction, setDoc, writeBatch,
+  collection, deleteDoc, doc, getDoc, getDocFromCache, getDocs, onSnapshot, runTransaction, setDoc, writeBatch,
   type DocumentData, type Unsubscribe,
 } from "firebase/firestore";
 import { getDb } from "./firebase";
 import { applyVote, type VoteChoice } from "./votes";
-import type { Booking, Day, Expense, Stop, Traveler, TripMeta } from "../types";
+import type { Booking, Day, Expense, Photo, Stop, Traveler, TripMeta } from "../types";
 
 /**
  * Tutti i dati di un viaggio stanno sotto trips/{codice}/…
  * Il codice segreto è la chiave: chi non lo conosce non può leggere né scrivere
  * (vedi firestore.rules, che vietano di elencare i viaggi).
  */
-export type Coll = "days" | "stops" | "expenses" | "bookings" | "meta";
+export type Coll = "days" | "stops" | "expenses" | "bookings" | "meta" | "photos";
 
 const col = (trip: string, c: Coll) => collection(getDb(), "trips", trip, c);
 const ref = (trip: string, c: Coll, id: string) => doc(getDb(), "trips", trip, c, id);
@@ -51,6 +51,51 @@ export const saveDay = (trip: string, d: Day) => saveDoc(trip, "days", d.id, d);
 export const saveExpense = (trip: string, e: Expense) => saveDoc(trip, "expenses", e.id, e);
 export const saveBooking = (trip: string, b: Booking) => saveDoc(trip, "bookings", b.id, b);
 export const saveMeta = (trip: string, m: TripMeta) => saveDoc(trip, "meta", "trip", m as TripMeta & { id?: string });
+
+/* ---- Foto (scontrini, biglietti) ----
+ * Stanno in photos/{id} e non hanno un listener: si leggono una alla volta quando servono.
+ * Spese e prenotazioni tengono solo gli id in `photos`.
+ */
+export const savePhoto = (trip: string, p: Photo) => saveDoc(trip, "photos", p.id, p);
+
+/** Le foto non cambiano mai: prima si guarda la cache locale (funziona offline), poi il server. */
+export async function loadPhoto(trip: string, id: string): Promise<Photo | null> {
+  const r = ref(trip, "photos", id);
+  try {
+    const c = await getDocFromCache(r);
+    if (c.exists()) return { id, ...c.data() } as Photo;
+  } catch { /* non in cache */ }
+  const snap = await getDoc(r);
+  return snap.exists() ? ({ id, ...snap.data() } as Photo) : null;
+}
+
+export async function removePhotos(trip: string, ids: string[]) {
+  if (!ids.length) return;
+  const b = writeBatch(getDb());
+  for (const id of ids) b.delete(ref(trip, "photos", id));
+  await b.commit();
+}
+
+type WithPhotos = (Expense | Booking) & { id: string };
+
+/** Elimina una spesa o una prenotazione con le sue foto. Restituisce le foto tolte, per poterle rimettere. */
+export async function removeWithPhotos(trip: string, c: "expenses" | "bookings", item: WithPhotos): Promise<Photo[]> {
+  const ids = item.photos || [];
+  const saved = (await Promise.all(ids.map((id) => loadPhoto(trip, id).catch(() => null)))).filter((p): p is Photo => !!p);
+  const b = writeBatch(getDb());
+  b.delete(ref(trip, c, item.id));
+  for (const id of ids) b.delete(ref(trip, "photos", id));
+  await b.commit();
+  return saved;
+}
+
+/** "Annulla" dopo removeWithPhotos. */
+export async function restoreWithPhotos(trip: string, c: "expenses" | "bookings", item: WithPhotos, photos: Photo[]) {
+  const b = writeBatch(getDb());
+  b.set(ref(trip, c, item.id), clean(item));
+  for (const p of photos) b.set(ref(trip, "photos", p.id), clean(p));
+  await b.commit();
+}
 
 /** Voto in transazione: se due persone votano insieme non si perde nessun voto. */
 export async function vote(trip: string, stopId: string, me: Traveler, choice: VoteChoice): Promise<string | undefined> {
@@ -98,17 +143,24 @@ export async function importAll(trip: string, data: ExportFile): Promise<number>
 /** Le collection dell'itinerario: quelle che il reset svuota. Spese e cambio restano. */
 export const ITINERARY_COLLS = ["days", "stops", "bookings"] as const;
 
-/** Cancella tutti i documenti delle collection indicate. Restituisce quanti ne ha cancellati. */
-export async function clearCollections(trip: string, colls: readonly Coll[]): Promise<number> {
+/**
+ * Cancella tutti i documenti delle collection indicate, con le foto collegate
+ * (tranne quelle in `keepPhotos`). Restituisce quanti elementi ha cancellato, foto escluse.
+ */
+export async function clearCollections(trip: string, colls: readonly Coll[], keepPhotos = new Set<string>()): Promise<number> {
   let n = 0;
   for (const c of colls) {
     const snap = await getDocs(col(trip, c));
-    for (let i = 0; i < snap.docs.length; i += 400) {
-      const b = writeBatch(getDb());
-      for (const d of snap.docs.slice(i, i + 400)) b.delete(d.ref);
-      await b.commit();
-      n += Math.min(400, snap.docs.length - i);
+    const refs = snap.docs.map((d) => d.ref);
+    for (const d of snap.docs) {
+      for (const id of (d.data().photos as string[] | undefined) || []) if (!keepPhotos.has(id)) refs.push(ref(trip, "photos", id));
     }
+    for (let i = 0; i < refs.length; i += 400) {
+      const b = writeBatch(getDb());
+      for (const r of refs.slice(i, i + 400)) b.delete(r);
+      await b.commit();
+    }
+    n += snap.docs.length;
   }
   return n;
 }
@@ -118,11 +170,14 @@ export async function clearCollections(trip: string, colls: readonly Coll[]): Pr
  * Spese e cambio non vengono toccati (le spese del file, se ci sono, si ignorano).
  */
 export async function replaceItinerary(trip: string, data: ExportFile): Promise<{ removed: number; added: number }> {
-  const removed = await clearCollections(trip, ITINERARY_COLLS);
+  // Le foto delle prenotazioni che restano anche nel file non si cancellano.
+  const keep = new Set(Object.values(data.bookings || {}).flatMap((b) => b.photos || []));
+  const removed = await clearCollections(trip, ITINERARY_COLLS, keep);
   const added = await importAll(trip, { version: 1, days: data.days, stops: data.stops, bookings: data.bookings || {}, expenses: {} });
   return { removed, added };
 }
 
+/** Backup di tutto tranne le foto (resterebbe troppo pesante): spese e prenotazioni tengono gli id. */
 export async function exportAll(trip: string): Promise<ExportFile> {
   const out: ExportFile = { version: 1, days: {}, stops: {}, bookings: {}, expenses: {} };
   for (const c of ["days", "stops", "bookings", "expenses"] as const) {

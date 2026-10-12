@@ -44,6 +44,21 @@ export function parseCoords(txt: string): LatLng | null {
   return null;
 }
 
+/** Distanza in metri tra due punti (formula dell'emisenoverso). */
+export function distanceM(a: LatLng, b: LatLng): number {
+  const rad = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * rad, dLng = (b.lng - a.lng) * rad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2;
+  return 2 * 6371000 * Math.asin(Math.sqrt(h));
+}
+
+/** "650 m", "2,3 km", "27 km". */
+export function fmtDist(m: number): string {
+  if (m < 1000) return `${Math.max(10, Math.round(m / 10) * 10)} m`;
+  if (m < 10000) return `${(m / 1000).toFixed(1).replace(".", ",")} km`;
+  return `${Math.round(m / 1000)} km`;
+}
+
 /** Città più vicina (entro 70 km), per filtrare la mappa. */
 export function nearestCity(s: LatLng): string {
   let best = "Altro", bd = Infinity;

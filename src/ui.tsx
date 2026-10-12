@@ -9,7 +9,8 @@ export type SheetState =
   | { kind: "expense"; id?: string }
   | { kind: "booking"; id?: string }
   | { kind: "settings" }
-  | { kind: "phrase"; group: number; index: number }
+  /** Testo giapponese a tutto schermo (frasi, indirizzo per il tassista). */
+  | { kind: "big"; title: string; jp: string; sub?: string }
   | null;
 
 export interface Ui {
