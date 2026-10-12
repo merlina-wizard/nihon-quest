@@ -43,7 +43,7 @@ function Center({ title, children }: { title: string; children?: React.ReactNode
 function SetupMissing() {
   return (
     <Center title="Configurazione mancante">
-      Mancano le chiavi di Firebase. In locale copia <code>.env.example</code> in <code>.env.local</code> e compilalo; su GitHub aggiungile come secret del repository. Trovi i passaggi nel README.
+      Mancano le chiavi di Firebase, oppure una non è giusta (l'ID progetto è senza punti, es. nihon-quest-2026). In locale copia <code>.env.example</code> in <code>.env.local</code> e compilalo; su GitHub aggiungile come secret del repository. Trovi i passaggi nel README.
     </Center>
   );
 }

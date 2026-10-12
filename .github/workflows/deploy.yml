@@ -25,6 +25,14 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      - name: Controlla l'ID progetto Firebase
+        env:
+          PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+        run: |
+          if [ -z "$PROJECT_ID" ] || [[ "$PROJECT_ID" == *.* ]]; then
+            echo "::error::Il secret VITE_FIREBASE_PROJECT_ID deve essere l'ID progetto (es. nihon-quest-2026), senza punti."
+            exit 1
+          fi
       - run: npm run build
         env:
           VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}

@@ -16,7 +16,9 @@ const config = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
-export const firebaseConfigured = Boolean(config.apiKey && config.projectId && config.appId);
+// L'ID progetto non ha mai punti: se ne ha, è stato copiato lo storage bucket o il dominio
+// e Firestore risponderebbe 503 all'infinito.
+export const firebaseConfigured = Boolean(config.apiKey && config.projectId && config.appId) && !config.projectId.includes(".");
 
 let app: FirebaseApp | null = null;
 let db: Firestore | null = null;
