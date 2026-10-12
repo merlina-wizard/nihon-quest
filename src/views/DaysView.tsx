@@ -11,7 +11,7 @@ export function DaysView() {
   const { day, setDay, open } = useUi();
 
   if (!loaded) return <Empty title="Carico il viaggio…" />;
-  if (!days.length) return <Empty title="Il viaggio è vuoto.">Importa i dati da Kit → Impostazioni, oppure aggiungi i giorni.</Empty>;
+  if (!days.length) return <Empty title="Il viaggio è vuoto.">Tocca il tuo nome in alto a destra → Importa JSON per caricare l'itinerario.</Empty>;
 
   const left = daysBetween(todayRome(), days[0].id);
   const d = days.find((x) => x.id === day) || days[0];

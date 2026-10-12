@@ -86,6 +86,34 @@ export async function importAll(trip: string, data: ExportFile): Promise<number>
   return entries.length;
 }
 
+/** Le collection dell'itinerario: quelle che il reset svuota. Spese e cambio restano. */
+export const ITINERARY_COLLS = ["days", "stops", "bookings"] as const;
+
+/** Cancella tutti i documenti delle collection indicate. Restituisce quanti ne ha cancellati. */
+export async function clearCollections(trip: string, colls: readonly Coll[]): Promise<number> {
+  let n = 0;
+  for (const c of colls) {
+    const snap = await getDocs(col(trip, c));
+    for (let i = 0; i < snap.docs.length; i += 400) {
+      const b = writeBatch(getDb());
+      for (const d of snap.docs.slice(i, i + 400)) b.delete(d.ref);
+      await b.commit();
+      n += Math.min(400, snap.docs.length - i);
+    }
+  }
+  return n;
+}
+
+/**
+ * Sostituisce l'itinerario con quello del file: svuota giorni, tappe e prenotazioni, poi importa.
+ * Spese e cambio non vengono toccati (le spese del file, se ci sono, si ignorano).
+ */
+export async function replaceItinerary(trip: string, data: ExportFile): Promise<{ removed: number; added: number }> {
+  const removed = await clearCollections(trip, ITINERARY_COLLS);
+  const added = await importAll(trip, { version: 1, days: data.days, stops: data.stops, bookings: data.bookings || {}, expenses: {} });
+  return { removed, added };
+}
+
 export async function exportAll(trip: string): Promise<ExportFile> {
   const out: ExportFile = { version: 1, days: {}, stops: {}, bookings: {}, expenses: {} };
   for (const c of ["days", "stops", "bookings", "expenses"] as const) {

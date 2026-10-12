@@ -3,7 +3,10 @@ import { Avatar, ConfirmButton, EditDiff, TypeBadge, VoteControls } from "./bits
 import { BTYPES, ECATS, TYPES, typeOf } from "../lib/constants";
 import { fmtDay, fmtShort, nowIso, parseNum, todayTokyo } from "../lib/format";
 import { geocode, hasPos, mapsLink, parseCoords } from "../lib/geo";
-import { exportAll, importAll, newId, removeDoc, saveBooking, saveDay, saveExpense, saveMeta, saveStop, type ExportFile } from "../lib/db";
+import {
+  clearCollections, exportAll, importAll, ITINERARY_COLLS, newId, removeDoc, replaceItinerary,
+  saveBooking, saveDay, saveExpense, saveMeta, saveStop, type ExportFile,
+} from "../lib/db";
 import { newProposal } from "../lib/votes";
 import { PHRASES } from "../content/kit";
 import { useVote } from "../views/VotesView";
@@ -381,6 +384,86 @@ function BookingForm({ id }: { id?: string }) {
   );
 }
 
+/* ---------------- Reset dell'itinerario ---------------- */
+const RESET_WORD = "RESET";
+
+/**
+ * Due azioni distruttive, con conferma scritta:
+ * - Sostituisci: svuota giorni, tappe e prenotazioni e importa un file al loro posto.
+ * - Svuota: cancella giorni, tappe e prenotazioni.
+ * Spese e cambio non vengono mai toccati.
+ */
+function ResetZone({ onBackup }: { onBackup: () => void }) {
+  const { days, stops, bookings, code, run, toast } = useTrip();
+  const [mode, setMode] = useState<null | "replace" | "clear">(null);
+  const [file, setFile] = useState<{ name: string; data: ExportFile } | null>(null);
+  const [word, setWord] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const reset = () => { setMode(null); setFile(null); setWord(""); };
+  const pick = async (f: File) => {
+    try {
+      const data = JSON.parse(await f.text()) as ExportFile;
+      if (!data || typeof data !== "object" || !data.days || !data.stops) throw new Error("formato");
+      setFile({ name: f.name, data });
+    } catch { toast("Questo file non sembra un export di Nihon Quest."); }
+  };
+  const go = async () => {
+    setBusy(true);
+    const ok = await run(async () => {
+      if (mode === "replace" && file) {
+        const r = await replaceItinerary(code, file.data);
+        return `Itinerario sostituito: tolti ${r.removed} elementi, importati ${r.added}.`;
+      }
+      const n = await clearCollections(code, ITINERARY_COLLS);
+      return `Itinerario svuotato: cancellati ${n} elementi.`;
+    });
+    setBusy(false);
+    if (ok) reset();
+  };
+
+  const now = `${days.length} giorni, ${stops.length} tappe e idee, ${bookings.length} prenotazioni`;
+  const ready = word.trim().toUpperCase() === RESET_WORD && (mode === "clear" || !!file);
+
+  if (!mode) {
+    return (
+      <div className="actions">
+        <button className="btn" onClick={() => setMode("replace")}>Sostituisci con un file</button>
+        <button className="btn no" onClick={() => setMode("clear")}>Svuota itinerario</button>
+      </div>
+    );
+  }
+  return (
+    <div className="card" style={{ display: "flex", flexDirection: "column", gap: 10, boxShadow: "none", borderColor: "var(--red)" }}>
+      <b>{mode === "replace" ? "Sostituisci l'itinerario" : "Svuota l'itinerario"}</b>
+      <p className="hint" style={{ margin: 0 }}>
+        Vengono cancellati per tutti e tre: {now}. Spese e cambio restano. Prima conviene scaricare un backup.
+      </p>
+      <button className="btn small" onClick={onBackup}>Scarica backup</button>
+      {mode === "replace" && (
+        <label className="btn" style={{ cursor: "pointer" }}>
+          {file ? `File: ${file.name}` : "Scegli il file JSON"}
+          <input type="file" accept="application/json,.json" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) pick(f); e.target.value = ""; }} />
+        </label>
+      )}
+      {mode === "replace" && file && (
+        <p className="hint" style={{ margin: 0 }}>
+          Il file contiene {Object.keys(file.data.days).length} giorni, {Object.keys(file.data.stops).length} tappe e idee, {Object.keys(file.data.bookings || {}).length} prenotazioni.
+        </p>
+      )}
+      <label className="f">Scrivi {RESET_WORD} per confermare
+        <input className="inp" id="reset_word" autoCapitalize="characters" autoComplete="off" value={word} onChange={(e) => setWord(e.target.value)} />
+      </label>
+      <div className="actions">
+        <button className="btn ghost" onClick={reset} disabled={busy}>Annulla</button>
+        <button className="btn no" disabled={!ready || busy} onClick={go}>
+          {busy ? "Un attimo…" : mode === "replace" ? "Sostituisci" : "Svuota"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* ---------------- Impostazioni ---------------- */
 function Settings() {
   const { me, setMe, meta, code, run, toast, leave } = useTrip();
@@ -437,7 +520,8 @@ function Settings() {
           </label>
           <button className="btn" onClick={doExport}>Scarica backup</button>
         </div>
-        <p className="hint">L'importazione aggiunge o sovrascrive gli elementi con lo stesso id, senza cancellare gli altri.</p>
+        <p className="hint">"Importa JSON" aggiunge o aggiorna gli elementi del file, senza cancellare gli altri.</p>
+        <ResetZone onBackup={doExport} />
         <ConfirmButton className="btn ghost block" label="Esci da questo viaggio" confirmLabel="Tocca di nuovo per uscire" onConfirm={() => { close(); leave(); }} />
       </div>
     </>

@@ -33,6 +33,7 @@ src/
   content/kit.ts     frasi, numeri d'emergenza, consigli (contenuti statici)
   styles.css         tutto lo stile: token CSS in :root con tema chiaro e scuro
 firestore.rules      regole di sicurezza (da incollare nella console Firebase se cambiano)
+scripts/md-to-json.py  converte l'itinerario Markdown nel JSON da importare (coordinate, note, idee, prenotazioni in cima)
 ```
 
 ## Modello dati (Firestore)
@@ -46,6 +47,7 @@ Tutto sta sotto `trips/{codice}/{collection}/{id}`; le collection ammesse sono `
 
 ## Regole del progetto
 
+- Reset: `clearCollections` e `replaceItinerary` in `lib/db.ts` toccano solo `days`, `stops`, `bookings` (`ITINERARY_COLLS`). Spese e cambio non si cancellano mai da lì.
 - Le scritture passano da `lib/db.ts` e dalla funzione `run()` dello store, che mostra il toast e gestisce gli errori.
 - Le regole dei voti stanno in `lib/votes.ts`: se le cambi, aggiorna i test.
 - Niente dati del viaggio nel repository (è pubblico): i dati vivono solo su Firestore. I file `*-dati.json` sono in `.gitignore`.

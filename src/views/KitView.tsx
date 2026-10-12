@@ -4,15 +4,16 @@ import { BTYPES } from "../lib/constants";
 import { fmtShort } from "../lib/format";
 import { mapsLink } from "../lib/geo";
 import { local } from "../lib/storage";
-import { EMERGENCY, PHRASES, TIPS } from "../content/kit";
+import { CHECKLIST, EMERGENCY, PHRASES, TIPS } from "../content/kit";
 import { useTrip } from "../store";
 import { useUi } from "../ui";
 
-type Seg = "pren" | "frasi" | "sos" | "tips";
-const SEGS: [Seg, string][] = [["pren", "Prenotazioni"], ["frasi", "Frasi"], ["sos", "Emergenze"], ["tips", "Consigli"]];
+type Seg = "pren" | "prima" | "frasi" | "sos" | "tips";
+const SEGS: [Seg, string][] = [["pren", "Prenotazioni"], ["prima", "Prima di partire"], ["frasi", "Frasi"], ["sos", "Emergenze"], ["tips", "Consigli"]];
 
 export function KitView() {
-  const [seg, setSegState] = useState<Seg>((local.get("kit") as Seg) || "pren");
+  const saved = local.get("kit") as Seg;
+  const [seg, setSegState] = useState<Seg>(SEGS.some(([k]) => k === saved) ? saved : "pren");
   const setSeg = (s: Seg) => { local.set("kit", s); setSegState(s); };
   return (
     <>
@@ -20,9 +21,36 @@ export function KitView() {
         {SEGS.map(([k, l]) => <button key={k} className="mchip" aria-pressed={seg === k} onClick={() => setSeg(k)}>{l}</button>)}
       </div>
       {seg === "pren" && <Bookings />}
+      {seg === "prima" && <Checklist />}
       {seg === "frasi" && <Phrases />}
       {seg === "sos" && <Sos />}
       {seg === "tips" && <ul className="tips">{TIPS.map(([t, d]) => <li key={t}><b>{t}</b>{d}</li>)}</ul>}
+    </>
+  );
+}
+
+/** Checklist personale: le spunte restano su questo telefono. */
+function Checklist() {
+  const [done, setDone] = useState<Record<string, boolean>>(() => {
+    try { return JSON.parse(local.get("check") || "{}"); } catch { return {}; }
+  });
+  const toggle = (id: string) => {
+    const next = { ...done, [id]: !done[id] };
+    setDone(next);
+    local.set("check", JSON.stringify(next));
+  };
+  const n = CHECKLIST.filter((c) => done[c.id]).length;
+  return (
+    <>
+      <p className="hint" style={{ margin: 0 }}>{n} di {CHECKLIST.length} fatte. Le spunte restano solo su questo telefono: ognuno ha la sua lista.</p>
+      <div className="tl">
+        {CHECKLIST.map((c) => (
+          <div key={c.id} className={`stop ${done[c.id] ? "isdone" : ""}`} style={{ gridTemplateColumns: "1fr 44px" }}>
+            <div className="st-main"><span className="st-title">{c.title}</span><span className="muted" style={{ fontSize: 13 }}>{c.text}</span></div>
+            <button className="check" aria-pressed={!!done[c.id]} aria-label={`Segna "${c.title}" come fatto`} onClick={() => toggle(c.id)}>{done[c.id] ? "✓" : ""}</button>
+          </div>
+        ))}
+      </div>
     </>
   );
 }

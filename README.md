@@ -49,6 +49,14 @@ L'app di viaggio di Marty, Ema e Antonio per il Giappone (28 ottobre – 12 nove
 
 Il codice resta salvato sul telefono. "Esci da questo viaggio" nelle impostazioni lo dimentica.
 
+## Aggiornare l'itinerario
+
+1. Scrivi l'itinerario in Markdown con il formato "per l'app" (una tabella per giorno con le colonne Ora, Tappa, Tipo, Luogo, Note).
+2. Genera il JSON: `python3 scripts/md-to-json.py itinerario.md nihon-quest-dati.json nihon-quest-extra.json`. Le coordinate dei luoghi sono nello script; note del giorno, link, idee e prenotazioni stanno in `nihon-quest-extra.json`, che resta fuori dal repository.
+3. Nell'app: tocca il tuo nome → **Sostituisci con un file** → scegli il JSON → scrivi `RESET` → **Sostituisci**. Giorni, tappe e prenotazioni vengono rimpiazzati per tutti; spese e cambio restano.
+
+**Svuota itinerario** cancella giorni, tappe e prenotazioni senza importare niente. In entrambi i casi conviene prima **Scarica backup**.
+
 ## Sviluppo in locale
 
 ```bash

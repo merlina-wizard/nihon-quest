@@ -6,3 +6,6 @@ dist
 .DS_Store
 # i dati del viaggio non vanno nel repo pubblico
 *-dati.json
+*-extra.json
+__pycache__/
+*.pyc
