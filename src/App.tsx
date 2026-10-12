@@ -79,7 +79,7 @@ const NAV: { tab: Tab; label: string; icon: JSX.Element }[] = [
 ];
 
 function Shell() {
-  const { me, setMe, days, stops, error } = useTrip();
+  const { me, setMe, days, stops, error, slow, loaded, synced } = useTrip();
   const [tab, setTabState] = useState<Tab>(() => (local.get("tab") as Tab) || "giorni");
   const [sheet, setSheet] = useState<SheetState>(null);
   const [day, setDay] = useState<string | null>(null);
@@ -111,12 +111,16 @@ function Shell() {
       )}
       <header className="top">
         <div className="logo"><b>NIHON <i>QUEST</i></b><small>東京 · 京都 · 大阪 · 2026</small></div>
-        <button className="me-chip" onClick={() => setSheet({ kind: "settings" })} aria-label="Chi sei e impostazioni">
+        {loaded && !synced && <span className="chip vote" style={{ marginLeft: "auto" }} title="Le ultime modifiche non sono ancora arrivate al server">Non salvato</span>}
+        <button className="me-chip" style={loaded && !synced ? { marginLeft: 8 } : undefined} onClick={() => setSheet({ kind: "settings" })} aria-label="Chi sei e impostazioni">
           {me ? <><Avatar name={me} /><span>{me}</span></> : <><span className="av off">?</span><span>Chi sei?</span></>}
         </button>
       </header>
       <main>
         {error && <div className="banner">{error}</div>}
+        {!error && slow && !loaded && (
+          <div className="banner">Non riesco a collegarmi al server. Controlla la connessione; se sei al computer, prova a disattivare le estensioni del browser o ad aprire l'app dal telefono.</div>
+        )}
         {tab === "giorni" && <DaysView />}
         {tab === "mappa" && <MapView />}
         {tab === "voti" && <VotesView />}

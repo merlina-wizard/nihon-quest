@@ -29,6 +29,9 @@ export function getDb(): Firestore {
       // Cache locale: l'app si apre e si legge anche senza rete; le modifiche partono appena torna.
       localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
       ignoreUndefinedProperties: true,
+      // Long polling al posto dello streaming: funziona anche dietro proxy, antivirus ed estensioni
+      // che bloccano il canale in streaming (sintomo: richieste "channel" in loop e "Carico il viaggio…" infinito).
+      experimentalForceLongPolling: true,
     });
   }
   return db;

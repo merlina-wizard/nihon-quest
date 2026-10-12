@@ -16,6 +16,10 @@ interface TripState {
   meta: TripMeta;
   loaded: boolean;
   error: string | null;
+  /** Il server ha confermato i dati e non ci sono modifiche in attesa. */
+  synced: boolean;
+  /** Il server non risponde da più di 12 secondi. */
+  slow: boolean;
   toast: (msg: string) => void;
   /** Esegue una scrittura e mostra un messaggio; restituisce false se fallisce. */
   run: (fn: () => Promise<unknown>, ok?: string) => Promise<boolean>;
@@ -39,6 +43,9 @@ export function TripProvider({ code, onLeave, children }: { code: string; onLeav
   const [meta, setMeta] = useState<TripMeta>({ rate: DEFAULT_RATE });
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** true quando i dati sono confermati dal server e non ci sono modifiche in attesa. */
+  const [synced, setSynced] = useState(false);
+  const [slow, setSlow] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const timer = useRef<number>();
 
@@ -53,8 +60,15 @@ export function TripProvider({ code, onLeave, children }: { code: string; onLeav
       console.warn(e);
       setError("Non riesco a leggere i dati. Controlla la connessione o il codice del viaggio.");
     };
+    // Se dopo 12 secondi il server non ha ancora risposto, lo diciamo invece di restare su "Carico…".
+    const slowTimer = window.setTimeout(() => setSlow(true), 12000);
     const offs = [
-      subscribe<Day>(code, "days", (r) => { setDays(r.sort((a, b) => a.id.localeCompare(b.id))); setLoaded(true); }, onErr),
+      subscribe<Day>(code, "days", (r, sync) => {
+        setDays(r.sort((a, b) => a.id.localeCompare(b.id)));
+        if (!sync.fromCache) { setLoaded(true); window.clearTimeout(slowTimer); setSlow(false); }
+        else if (r.length) setLoaded(true);
+        setSynced(!sync.fromCache && !sync.pending);
+      }, onErr),
       subscribe<Stop>(code, "stops", setStops, onErr),
       subscribe<Expense>(code, "expenses", setExpenses, onErr),
       subscribe<Booking>(code, "bookings", setBookings, onErr),
@@ -63,7 +77,7 @@ export function TripProvider({ code, onLeave, children }: { code: string; onLeav
         setMeta({ rate: DEFAULT_RATE, ...(m || {}) });
       }, onErr),
     ];
-    return () => offs.forEach((off) => off());
+    return () => { window.clearTimeout(slowTimer); offs.forEach((off) => off()); };
   }, [code]);
 
   const run = useCallback(async (fn: () => Promise<unknown>, ok?: string) => {
@@ -83,8 +97,8 @@ export function TripProvider({ code, onLeave, children }: { code: string; onLeav
     code, me,
     setMe: (t) => { local.set("me", t); setMeState(t); },
     leave: () => { local.set("code", null); onLeave(); },
-    days, stops, expenses, bookings, meta, loaded, error, toast, run,
-  }), [code, me, days, stops, expenses, bookings, meta, loaded, error, toast, run, onLeave]);
+    days, stops, expenses, bookings, meta, loaded, error, synced, slow, toast, run,
+  }), [code, me, days, stops, expenses, bookings, meta, loaded, error, synced, slow, toast, run, onLeave]);
 
   return (
     <Ctx.Provider value={value}>

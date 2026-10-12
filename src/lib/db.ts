@@ -24,10 +24,19 @@ function clean<T extends { id?: string }>(o: T): DocumentData {
   return JSON.parse(JSON.stringify(rest));
 }
 
-export function subscribe<T>(trip: string, c: Coll, cb: (rows: T[]) => void, onErr: (e: Error) => void): Unsubscribe {
+/** Stato della sincronizzazione: `fromCache` = dati non confermati dal server, `pending` = modifiche in attesa. */
+export interface SyncInfo { fromCache: boolean; pending: boolean }
+
+export function subscribe<T>(
+  trip: string, c: Coll, cb: (rows: T[], sync: SyncInfo) => void, onErr: (e: Error) => void,
+): Unsubscribe {
   return onSnapshot(
     col(trip, c),
-    (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as T)),
+    { includeMetadataChanges: true },
+    (snap) => cb(
+      snap.docs.map((d) => ({ id: d.id, ...d.data() }) as T),
+      { fromCache: snap.metadata.fromCache, pending: snap.metadata.hasPendingWrites },
+    ),
     onErr,
   );
 }
