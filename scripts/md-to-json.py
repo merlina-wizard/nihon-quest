@@ -81,7 +81,7 @@ COORDS = {
     "Super Nintendo World, Universal Studios Japan, Osaka": (34.6688, 135.4302),
     "Osaka Station": (34.7025, 135.4959),
     "Osaka Station JR Expressway Bus Terminal, Osaka": (34.7036, 135.4955),
-    "Nijigen no Mori, Awaji Island, Hyogo": (34.5520, 134.9740),
+    "Nijigen no Mori, Awaji Island, Hyogo": (34.57558, 135.00460),
     "Osaka Castle, Chuo, Osaka": (34.6873, 135.5262),
     "Shinjuku Gyoen National Garden, Shinjuku, Tokyo": (35.6852, 139.7101),
     "Tokyo Metropolitan Government Building, Nishi-Shinjuku, Tokyo": (35.6896, 139.6922),
@@ -115,6 +115,9 @@ COORDS = {
     "Haneda Airport Terminal 3, Tokyo": (35.5444, 139.7686),
 }
 
+# Luoghi da scrivere in modo più preciso (per "Portami lì" e per la ricerca). Si aggiungono dal file extra.
+PLACE_FIX = {}
+
 # Note del giorno, link, idee e prenotazioni stanno in un file a parte (non nel repository, che è pubblico):
 #   {"links": {"Titolo tappa": "https://..."}, "dayNotes": {"2026-10-29": "..."},
 #    "ideas": [{"title", "type", "place", "lat", "lng", "notes"}], "bookings": {"id": {...}}}
@@ -125,6 +128,9 @@ def load_extra(path):
     global LINKS, DAY_NOTES, IDEAS, BOOKINGS
     e = json.load(open(path, encoding="utf-8"))
     LINKS, DAY_NOTES, BOOKINGS = e.get("links", {}), e.get("dayNotes", {}), e.get("bookings", {})
+    # posizioni di hotel e ristoranti, e luoghi da riscrivere: privati, quindi nel file extra
+    COORDS.update({k: tuple(v) for k, v in e.get("coords", {}).items()})
+    PLACE_FIX.update(e.get("placeFix", {}))
     IDEAS = [(i["title"], i["type"], i["place"], (i["lat"], i["lng"]) if i.get("lat") is not None else None, i.get("notes", ""))
              for i in e.get("ideas", [])]
 
@@ -175,6 +181,7 @@ def parse(md: str):
             if len(cells) != 5 or not re.match(r"^\d{2}:\d{2}$", cells[0]):
                 continue
             time, title, typ, place, notes = cells
+            place = PLACE_FIX.get(place, place)
             if typ not in TYPES:
                 raise ValueError(f"Tipo sconosciuto {typ!r} in {cur} {title}")
             n += 1
