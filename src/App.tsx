@@ -21,8 +21,10 @@ export default function App() {
 
 /** Avviso quando è pubblicata una nuova versione dell'app (il service worker la tiene in attesa). */
 function UpdateBar() {
-  const { needRefresh: [need], updateServiceWorker } = useRegisterSW({
+  const reg = useRef<ServiceWorkerRegistration>();
+  const { needRefresh: [need, setNeed] } = useRegisterSW({
     onRegisteredSW(_url, r) {
+      reg.current = r;
       // Un'app aperta per giorni controlla gli aggiornamenti quando torna in primo piano.
       if (r) document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") r.update().catch(() => {}); });
     },
@@ -31,9 +33,29 @@ function UpdateBar() {
   return (
     <div className="update-bar" role="status">
       <span>Nuova versione disponibile.</span>
-      <button className="btn small primary" onClick={() => updateServiceWorker(true)}>Aggiorna</button>
+      <button className="btn small primary" onClick={() => { setNeed(false); applyUpdate(reg.current); }}>Aggiorna</button>
     </div>
   );
+}
+
+/**
+ * Attiva la versione in attesa e ricarica. Non si affida solo a `controllerchange`: su iPhone la PWA
+ * può partire senza service worker al comando e quell'evento non arriva. Se dopo 5 secondi la versione
+ * nuova è ancora in attesa, toglie il service worker: al riavvio si installa da zero quello nuovo.
+ */
+function applyUpdate(r?: ServiceWorkerRegistration) {
+  const waiting = r?.waiting;
+  let done = false;
+  const reload = () => { if (!done) { done = true; window.location.reload(); } };
+  if (!r || !waiting) return reload();
+  navigator.serviceWorker.addEventListener("controllerchange", reload);
+  waiting.addEventListener("statechange", () => { if (waiting.state === "activated") reload(); });
+  waiting.postMessage({ type: "SKIP_WAITING" });
+  setTimeout(() => {
+    if (done) return;
+    if (r.waiting === waiting) r.unregister().catch(() => {}).finally(reload);
+    else reload();
+  }, 5000);
 }
 
 function Main() {
