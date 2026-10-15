@@ -4,6 +4,7 @@ import {
 } from "firebase/firestore";
 import { getDb } from "./firebase";
 import { applyVote, type VoteChoice } from "./votes";
+import { assertNoPlainTickets, type ImportBooking } from "./tickets";
 import type { Booking, Day, Expense, Photo, Stop, Traveler, TripMeta } from "../types";
 
 /**
@@ -51,6 +52,10 @@ export const saveDay = (trip: string, d: Day) => saveDoc(trip, "days", d.id, d);
 export const saveExpense = (trip: string, e: Expense) => saveDoc(trip, "expenses", e.id, e);
 export const saveBooking = (trip: string, b: Booking) => saveDoc(trip, "bookings", b.id, b);
 export const saveMeta = (trip: string, m: TripMeta) => saveDoc(trip, "meta", "trip", m as TripMeta & { id?: string });
+
+/** Salva solo la cassaforte dei biglietti, senza toccare il resto delle impostazioni. */
+export const saveVault = (trip: string, vault: NonNullable<TripMeta["vault"]>) =>
+  setDoc(ref(trip, "meta", "trip"), { vault: JSON.parse(JSON.stringify(vault)) }, { merge: true });
 
 /* ---- Foto (scontrini, biglietti) ----
  * Stanno in photos/{id} e non hanno un listener: si leggono una alla volta quando servono.
@@ -121,20 +126,28 @@ export interface ExportFile {
   meta?: TripMeta;
   days: Record<string, Omit<Day, "id">>;
   stops: Record<string, Omit<Stop, "id">>;
-  bookings: Record<string, Omit<Booking, "id">>;
+  bookings: Record<string, ImportBooking>;
   expenses: Record<string, Omit<Expense, "id">>;
 }
 
 /** Importa un file esportato (anche quello generato dalla prima versione su claude.ai). */
-export async function importAll(trip: string, data: ExportFile): Promise<number> {
+export async function importAll(trip: string, data: ExportFile, photos: Photo[] = []): Promise<number> {
+  // I QR in chiaro vanno prima cifrati (sealTickets): qui non devono più esserci.
+  assertNoPlainTickets(data.bookings || {});
   const entries: [Coll, string, DocumentData][] = [];
-  if (data.meta) entries.push(["meta", "trip", data.meta]);
+  // La cassaforte del viaggio non si sovrascrive mai da un file.
+  if (data.meta) { const { vault: _v, ...m } = data.meta; entries.push(["meta", "trip", m]); }
+  for (const p of photos) entries.push(["photos", p.id, clean(p)]);
   for (const c of ["days", "stops", "bookings", "expenses"] as const) {
     for (const [id, v] of Object.entries(data[c] || {})) entries.push([c, id, v as DocumentData]);
   }
   for (let i = 0; i < entries.length; i += 400) {
     const b = writeBatch(getDb());
-    for (const [c, id, v] of entries.slice(i, i + 400)) b.set(ref(trip, c, id), JSON.parse(JSON.stringify(v)));
+    for (const [c, id, v] of entries.slice(i, i + 400)) {
+      // meta/trip si unisce a quello esistente, così la cassaforte resta.
+      if (c === "meta") b.set(ref(trip, c, id), JSON.parse(JSON.stringify(v)), { merge: true });
+      else b.set(ref(trip, c, id), JSON.parse(JSON.stringify(v)));
+    }
     await b.commit();
   }
   return entries.length;
@@ -169,11 +182,11 @@ export async function clearCollections(trip: string, colls: readonly Coll[], kee
  * Sostituisce l'itinerario con quello del file: svuota giorni, tappe e prenotazioni, poi importa.
  * Spese e cambio non vengono toccati (le spese del file, se ci sono, si ignorano).
  */
-export async function replaceItinerary(trip: string, data: ExportFile): Promise<{ removed: number; added: number }> {
+export async function replaceItinerary(trip: string, data: ExportFile, photos: Photo[] = []): Promise<{ removed: number; added: number }> {
   // Le foto delle prenotazioni che restano anche nel file non si cancellano.
   const keep = new Set(Object.values(data.bookings || {}).flatMap((b) => b.photos || []));
   const removed = await clearCollections(trip, ITINERARY_COLLS, keep);
-  const added = await importAll(trip, { version: 1, days: data.days, stops: data.stops, bookings: data.bookings || {}, expenses: {} });
+  const added = await importAll(trip, { version: 1, days: data.days, stops: data.stops, bookings: data.bookings || {}, expenses: {} }, photos);
   return { removed, added };
 }
 
@@ -185,6 +198,6 @@ export async function exportAll(trip: string): Promise<ExportFile> {
     snap.forEach((d) => { (out[c] as Record<string, DocumentData>)[d.id] = d.data(); });
   }
   const meta = await getDocs(col(trip, "meta"));
-  meta.forEach((d) => { if (d.id === "trip") out.meta = d.data() as TripMeta; });
+  meta.forEach((d) => { if (d.id === "trip") { const { vault: _v, ...m } = d.data() as TripMeta; out.meta = m; } });
   return out;
 }

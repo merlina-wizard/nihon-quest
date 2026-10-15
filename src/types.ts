@@ -102,13 +102,18 @@ export interface TripMeta {
   rateDate?: string;
   /** Budget al giorno a persona, in yen (facoltativo). */
   dailyBudget?: number;
+  /** Cassaforte dei biglietti: sale e controllo del PIN (il PIN non è mai salvato). */
+  vault?: import("./lib/vault").VaultInfo;
   updatedBy?: string;
 }
 
 /** Una foto compressa (JPEG in base64), in photos/{id}. */
 export interface Photo {
   id: string;
+  /** JPEG/PNG in base64, oppure testo cifrato ("nqv1.…") per i biglietti: vedi lib/vault.ts. */
   data: string;
+  /** true se `data` è cifrato con il PIN dei biglietti. */
+  enc?: boolean;
   w: number;
   h: number;
   createdBy?: string;

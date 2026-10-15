@@ -3,36 +3,61 @@ import { createPortal } from "react-dom";
 import { loadPhoto, newId, removePhotos, savePhoto } from "../lib/db";
 import { useWakeLock } from "../lib/device";
 import { nowIso } from "../lib/format";
-import { compressImage } from "../lib/image";
+import { compressImage, MAX_CHARS_SEALED } from "../lib/image";
+import { openPhoto, sealPhoto, type PhotoContent } from "../lib/tickets";
+import { useVaultVersion, vaultKey } from "../lib/vault";
 import { useTrip } from "../store";
+import type { Photo } from "../types";
+import { PinForm } from "./Vault";
 
 export const MAX_PHOTOS = 3;
 
-/** Foto già lette in questa sessione (id → data URL). */
-const cache = new Map<string, string>();
+/** Foto già lette in questa sessione, così come stanno su Firestore (anche cifrate). */
+const raw = new Map<string, Photo>();
+/** Foto già decifrate in questa sessione. Si svuota quando la cassaforte si chiude. */
+const opened = new Map<string, PhotoContent>();
 
-/** I dati di una foto: undefined mentre carica, null se non è disponibile (offline e mai aperta). */
-export function usePhoto(id: string): string | null | undefined {
-  const { code } = useTrip();
-  const [data, setData] = useState<string | null | undefined>(() => cache.get(id));
+export type PhotoState =
+  | { state: "loading" } | { state: "missing" } | { state: "locked" }
+  | ({ state: "ok" } & PhotoContent);
+
+/**
+ * Una foto pronta da mostrare. Le foto cifrate (biglietti) si aprono solo con la cassaforte sbloccata;
+ * altrimenti lo stato è "locked".
+ */
+export function usePhoto(id: string): PhotoState {
+  const { code, meta } = useTrip();
+  const v = useVaultVersion();
+  const key = vaultKey(code, meta.vault);
+  const [st, setSt] = useState<PhotoState>(() => {
+    const o = opened.get(id);
+    return o ? { state: "ok", ...o } : { state: "loading" };
+  });
   useEffect(() => {
-    const hit = cache.get(id);
-    if (hit) { setData(hit); return; }
+    if (!key) opened.clear();
+    const hit = opened.get(id);
+    if (hit) { setSt({ state: "ok", ...hit }); return; }
     let alive = true;
-    setData(undefined);
-    loadPhoto(code, id).then((p) => p?.data ?? null, () => null).then((d) => {
-      if (d) cache.set(id, d);
-      if (alive) setData(d);
-    });
+    setSt({ state: "loading" });
+    (async () => {
+      const p = raw.get(id) ?? (await loadPhoto(code, id).catch(() => null));
+      if (!p) { if (alive) setSt({ state: "missing" }); return; }
+      raw.set(id, p);
+      const c = await openPhoto(key, p).catch(() => null);
+      if (!alive) return;
+      if (c === "locked") setSt({ state: "locked" });
+      else if (!c) setSt({ state: "missing" });
+      else { opened.set(id, c); setSt({ state: "ok", ...c }); }
+    })();
     return () => { alive = false; };
-  }, [code, id]);
-  return data;
+  }, [code, id, key, v]);
+  return st;
 }
 
 /** Scarica in anticipo le foto (es. i biglietti di oggi e domani), così si aprono anche senza rete. */
 export function preloadPhotos(code: string, ids: string[]) {
   for (const id of ids) {
-    if (!cache.has(id)) loadPhoto(code, id).then((p) => { if (p) cache.set(id, p.data); }, () => {});
+    if (!raw.has(id)) loadPhoto(code, id).then((p) => { if (p) raw.set(id, p); }, () => {});
   }
 }
 
@@ -41,8 +66,8 @@ export function preloadPhotos(code: string, ids: string[]) {
  * Le nuove si caricano subito; se si chiude il modulo senza salvare vengono cancellate.
  * Quelle già salvate e tolte si cancellano solo al salvataggio (`commit`).
  */
-export function usePhotoDraft(initial: string[] = []) {
-  const { code, me, toast } = useTrip();
+export function usePhotoDraft(initial: string[] = [], secure = false) {
+  const { code, me, meta, toast } = useTrip();
   const [ids, setIds] = useState(initial);
   const [busy, setBusy] = useState(false);
   const fresh = useRef<string[]>([]);
@@ -54,13 +79,23 @@ export function usePhotoDraft(initial: string[] = []) {
   }, [code]);
 
   const add = async (file: File) => {
+    // I biglietti si salvano solo cifrati: serve la cassaforte aperta.
+    const key = secure ? vaultKey(code, meta.vault) : null;
+    if (secure && !key) {
+      toast(meta.vault ? "Per aggiungere un biglietto sblocca prima i biglietti (in alto qui sopra)." : "Per aggiungere un biglietto crea prima il PIN dei biglietti (in alto qui sopra).");
+      return;
+    }
     setBusy(true);
     try {
-      const img = await compressImage(file);
+      const img = await compressImage(file, key ? MAX_CHARS_SEALED : undefined);
       const id = newId();
-      cache.set(id, img.data);
+      const photo: Photo = key
+        ? { id, data: await sealPhoto(key, { img: img.data }), w: img.w, h: img.h, enc: true }
+        : { id, ...img };
+      raw.set(id, photo);
+      opened.set(id, { img: img.data });
       // Non si aspetta il server: senza rete la foto resta in coda sul telefono.
-      savePhoto(code, { id, ...img, createdBy: me || undefined, createdAt: nowIso() }).catch((e) => {
+      savePhoto(code, { ...photo, createdBy: me || undefined, createdAt: nowIso() }).catch((e) => {
         console.warn(e);
         toast("Foto non salvata: controlla la connessione e riprova.");
       });
@@ -94,9 +129,9 @@ export function usePhotoDraft(initial: string[] = []) {
 export type PhotoDraft = ReturnType<typeof usePhotoDraft>;
 
 function Thumb({ id }: { id: string }) {
-  const d = usePhoto(id);
-  if (d) return <img src={d} alt="" />;
-  return <span className="ph-miss">{d === undefined ? "…" : "Offline"}</span>;
+  const p = usePhoto(id);
+  if (p.state === "ok") return <img src={p.img} alt="" />;
+  return <span className="ph-miss">{p.state === "loading" ? "…" : p.state === "locked" ? "🔒" : "Offline"}</span>;
 }
 
 /** Campo del modulo: miniature, "+ Foto" e ✕ per toglierne una. */
@@ -126,9 +161,29 @@ export function PhotoField({ draft, label, hint }: { draft: PhotoDraft; label: s
 }
 
 function BigPhoto({ id }: { id: string }) {
-  const d = usePhoto(id);
-  if (d) return <img src={d} alt="" />;
-  return <p className="ph-msg">{d === undefined ? "Carico la foto…" : "Foto non disponibile senza rete: aprila una volta quando sei online e resterà sul telefono."}</p>;
+  const p = usePhoto(id);
+  if (p.state === "ok") {
+    return (
+      <figure className={`viewer-fig ${p.label || p.code ? "qr" : ""}`}>
+        <img src={p.img} alt={p.label || ""} />
+        {(p.label || p.code) && (
+          <figcaption>
+            {p.label && <b>{p.label}</b>}
+            {p.code && <span className="code">{p.code}</span>}
+          </figcaption>
+        )}
+      </figure>
+    );
+  }
+  if (p.state === "locked") {
+    return (
+      <div className="ph-lock">
+        <b>🔒 Biglietto protetto</b>
+        <PinForm compact />
+      </div>
+    );
+  }
+  return <p className="ph-msg">{p.state === "loading" ? "Carico la foto…" : "Foto non disponibile senza rete: aprila una volta quando sei online e resterà sul telefono."}</p>;
 }
 
 /**

@@ -1,5 +1,7 @@
 /** Limite di sicurezza per una foto in base64 (un documento Firestore arriva a 1 MB; le regole tagliano a 900 000). */
 const MAX_CHARS = 800_000;
+/** Per i biglietti, che si cifrano: il testo cifrato pesa circa 4/3 della foto. */
+export const MAX_CHARS_SEALED = 600_000;
 
 function loadImage(file: File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -16,7 +18,7 @@ function loadImage(file: File): Promise<HTMLImageElement> {
  * I browser applicano già l'orientamento EXIF quando disegnano l'immagine.
  * Se il risultato è ancora troppo pesante si riprova più piccolo.
  */
-export async function compressImage(file: File): Promise<{ data: string; w: number; h: number }> {
+export async function compressImage(file: File, maxChars = MAX_CHARS): Promise<{ data: string; w: number; h: number }> {
   const img = await loadImage(file);
   for (const [side, q] of [[1600, 0.72], [1200, 0.6], [900, 0.5]] as const) {
     const k = Math.min(1, side / Math.max(img.naturalWidth, img.naturalHeight));
@@ -30,7 +32,7 @@ export async function compressImage(file: File): Promise<{ data: string; w: numb
     ctx.fillRect(0, 0, w, h);
     ctx.drawImage(img, 0, 0, w, h);
     const data = canvas.toDataURL("image/jpeg", q);
-    if (data.length < MAX_CHARS) return { data, w, h };
+    if (data.length < maxChars) return { data, w, h };
   }
   throw new Error("troppo grande");
 }

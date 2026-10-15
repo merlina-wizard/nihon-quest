@@ -85,7 +85,7 @@ function Bookings() {
               <div className="row" style={{ marginTop: 4 }}>
                 {b.place && <a className="btn small" href={mapsLink({ place: b.place })} target="_blank" rel="noopener">Portami lì</a>}
                 {b.addressJp && <button className="btn small" onClick={() => open(taxiSheet(b.title, b.addressJp!))}>🚕 Tassista</button>}
-                {!!b.photos?.length && <button className="btn small" onClick={() => setView(b.photos!)}>🎫 Biglietto</button>}
+                {!!b.photos?.length && <button className="btn small" onClick={() => setView(b.photos!)}>🎫 {b.photos.length > 1 ? `Biglietti (${b.photos.length})` : "Biglietto"}</button>}
                 <button className="btn small ghost" onClick={() => open({ kind: "booking", id: b.id })}>Modifica</button>
               </div>
             </div>

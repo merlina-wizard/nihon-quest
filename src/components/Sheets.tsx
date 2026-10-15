@@ -13,6 +13,8 @@ import { speakJa, useJaVoice, useWakeLock } from "../lib/device";
 import { useVote } from "../views/VotesView";
 import { useToggleDone, useTrip } from "../store";
 import { PhotoField, usePhotoDraft } from "./Photos";
+import { PinForm, useVault, VaultSettings } from "./Vault";
+import { countTickets, sealTickets } from "../lib/tickets";
 import { useUi, type SheetState } from "../ui";
 import { TRAVELERS, type Booking, type BookingType, type Expense, type Photo, type Proposal, type Stop, type StopType, type Traveler } from "../types";
 
@@ -382,7 +384,7 @@ function BookingForm({ id }: { id?: string }) {
   });
   const [err, setErr] = useState<string | null>(null);
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
-  const photos = usePhotoDraft(b0?.photos);
+  const photos = usePhotoDraft(b0?.photos, true);
   const [docId] = useState(() => b0?.id || newId());
 
   const remove = () => {
@@ -420,13 +422,22 @@ function BookingForm({ id }: { id?: string }) {
         <label className="f">Indirizzo in giapponese <small>Facoltativo, da mostrare al tassista.</small>
           <input className="inp" id="b_addr" lang="ja" value={f.addressJp} onChange={set("addressJp")} /></label>
         <label className="f">Dettagli<textarea className="inp" id="b_details" value={f.details} onChange={set("details")} placeholder="Terminal, posti, cosa portare…" /></label>
-        <PhotoField draft={photos} label="Biglietto o conferma" hint="Foto o screenshot del QR, fino a 3." />
+        <VaultGate />
+        <PhotoField draft={photos} label="Biglietto o conferma" hint="Foto o screenshot del QR, fino a 3. Si salvano cifrate." />
         <Err msg={err} />
         <button className="btn primary block" type="submit" disabled={photos.busy}>Salva</button>
         {b0 && <ConfirmButton className="btn no block" label="Elimina" confirmLabel="Tocca di nuovo per eliminare" onConfirm={remove} />}
       </form>
     </>
   );
+}
+
+/** Cifra i QR del file prima di scriverli. Senza QR non serve la chiave. */
+async function sealFileTickets(data: ExportFile, key: CryptoKey | null, me: string | null): Promise<{ data: ExportFile; photos: Photo[] }> {
+  if (!countTickets(data.bookings || {})) return { data, photos: [] };
+  if (!key) throw new Error("cassaforte chiusa");
+  const r = await sealTickets(data.bookings, key, me || undefined, nowIso());
+  return { data: { ...data, bookings: r.bookings }, photos: r.photos };
 }
 
 /* ---------------- Reset dell'itinerario ---------------- */
@@ -439,7 +450,8 @@ const RESET_WORD = "RESET";
  * Spese e cambio non vengono mai toccati.
  */
 function ResetZone({ onBackup }: { onBackup: () => void }) {
-  const { days, stops, bookings, code, run, toast } = useTrip();
+  const { days, stops, bookings, code, run, toast, me } = useTrip();
+  const vault = useVault();
   const [mode, setMode] = useState<null | "replace" | "clear">(null);
   const [file, setFile] = useState<{ name: string; data: ExportFile } | null>(null);
   const [word, setWord] = useState("");
@@ -457,7 +469,8 @@ function ResetZone({ onBackup }: { onBackup: () => void }) {
     setBusy(true);
     const ok = await run(async () => {
       if (mode === "replace" && file) {
-        const r = await replaceItinerary(code, file.data);
+        const { data, photos } = await sealFileTickets(file.data, vault.key, me);
+        const r = await replaceItinerary(code, data, photos);
         return `Itinerario sostituito: tolti ${r.removed} elementi, importati ${r.added}.`;
       }
       const n = await clearCollections(code, ITINERARY_COLLS);
@@ -468,7 +481,9 @@ function ResetZone({ onBackup }: { onBackup: () => void }) {
   };
 
   const now = `${days.length} giorni, ${stops.length} tappe e idee, ${bookings.length} prenotazioni`;
-  const ready = word.trim().toUpperCase() === RESET_WORD && (mode === "clear" || !!file);
+  const tickets = file ? countTickets(file.data.bookings || {}) : 0;
+  const needsVault = mode === "replace" && tickets > 0 && vault.status !== "open";
+  const ready = word.trim().toUpperCase() === RESET_WORD && (mode === "clear" || !!file) && !needsVault;
 
   if (!mode) {
     return (
@@ -493,8 +508,15 @@ function ResetZone({ onBackup }: { onBackup: () => void }) {
       )}
       {mode === "replace" && file && (
         <p className="hint" style={{ margin: 0 }}>
-          Il file contiene {Object.keys(file.data.days).length} giorni, {Object.keys(file.data.stops).length} tappe e idee, {Object.keys(file.data.bookings || {}).length} prenotazioni.
+          Il file contiene {Object.keys(file.data.days).length} giorni, {Object.keys(file.data.stops).length} tappe e idee, {Object.keys(file.data.bookings || {}).length} prenotazioni{tickets ? ` e ${tickets} biglietti con QR, che verranno salvati cifrati` : ""}.
         </p>
+      )}
+      {needsVault && (
+        <div className="card vault-card">
+          <b>🔒 Il file contiene {tickets} biglietti</b>
+          <p className="hint" style={{ margin: 0 }}>Prima di importarli {vault.status === "none" ? "create il PIN dei biglietti" : "sblocca i biglietti"}: si salvano solo cifrati.</p>
+          <PinForm compact={vault.status !== "none"} />
+        </div>
       )}
       <label className="f">Scrivi {RESET_WORD} per confermare
         <input className="inp" id="reset_word" autoCapitalize="characters" autoComplete="off" value={word} onChange={(e) => setWord(e.target.value)} />
@@ -509,6 +531,18 @@ function ResetZone({ onBackup }: { onBackup: () => void }) {
   );
 }
 
+/** Nel modulo prenotazione: se i biglietti sono bloccati, chiede il PIN prima di poter aggiungere foto. */
+function VaultGate() {
+  const { status, restoring } = useVault();
+  if (restoring || status === "open") return null;
+  return (
+    <div className="card vault-card">
+      <b>🔒 {status === "none" ? "Crea il PIN dei biglietti" : "Sblocca i biglietti"}</b>
+      <PinForm compact={status !== "none"} />
+    </div>
+  );
+}
+
 /* ---------------- Impostazioni ---------------- */
 function Settings() {
   const { me, setMe, meta, code, run, toast, leave } = useTrip();
@@ -518,14 +552,26 @@ function Settings() {
   const [budget, setBudget] = useState(meta.dailyBudget ? String(meta.dailyBudget) : "");
   const [busy, setBusy] = useState(false);
 
+  const vault = useVault();
   const doImport = async (file: File) => {
     setBusy(true);
     try {
-      const data = JSON.parse(await file.text()) as ExportFile;
-      if (!data || typeof data !== "object" || !data.days || !data.stops) throw new Error("formato");
-      await run(async () => { const n = await importAll(code, data); return `Importati ${n} elementi.`; });
-    } catch { toast("Questo file non sembra un export di Nihon Quest."); }
-    finally { setBusy(false); }
+      let data: ExportFile;
+      try {
+        data = JSON.parse(await file.text()) as ExportFile;
+        if (!data || typeof data !== "object" || !data.days || !data.stops) throw new Error("formato");
+      } catch { toast("Questo file non sembra un export di Nihon Quest."); return; }
+      const n = countTickets(data.bookings || {});
+      if (n && vault.status !== "open") {
+        toast(`Il file contiene ${n} biglietti: ${vault.status === "none" ? "crea il PIN dei biglietti" : "sblocca i biglietti"} qui sotto e riprova.`);
+        return;
+      }
+      await run(async () => {
+        const sealed = await sealFileTickets(data, vault.key, me);
+        const k = await importAll(code, sealed.data, sealed.photos);
+        return `Importati ${k} elementi${sealed.photos.length ? ` e ${sealed.photos.length} biglietti cifrati` : ""}.`;
+      });
+    } finally { setBusy(false); }
   };
 
   const doExport = async () => {
@@ -570,6 +616,7 @@ function Settings() {
             <input className="inp num" id="r_budget" inputMode="numeric" value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="Es. 15000" /></label>
           <button className="btn block" type="submit" style={{ marginTop: 10 }}>Salva cambio e budget</button>
         </form>
+        <VaultSettings />
         <div className="eyebrow">Dati del viaggio</div>
         <div className="actions">
           <label className="btn" style={{ cursor: "pointer" }}>

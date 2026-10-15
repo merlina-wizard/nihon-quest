@@ -21,7 +21,8 @@ src/
   views/             una vista per scheda: Days, Map, Votes, Expenses, Kit
   components/
     Sheets.tsx       tutti i bottom sheet: dettaglio tappa, form, impostazioni, import/export, testo grande (frasi, tassista)
-    Photos.tsx       foto di scontrini e biglietti: caricamento, miniature, visore a tutto schermo
+    Photos.tsx       foto di scontrini e biglietti: caricamento, miniature, visore a tutto schermo (decifra i biglietti)
+    Vault.tsx        PIN dei biglietti: creazione, sblocco, blocco, protezione delle foto vecchie
     bits.tsx         piccoli componenti condivisi (Avatar, TypeBadge, DayStrip, VoteControls, Linked…)
   lib/
     db.ts            unico punto che parla con Firestore (letture, scritture, voto in transazione, import/export)
@@ -34,6 +35,8 @@ src/
     position.ts      hook useHere (posizione del telefono, condivisa tra le viste)
     device.ts        schermo sempre acceso, voce giapponese
     image.ts         compressione delle foto prima del salvataggio
+    vault.ts         cassaforte dei biglietti: PIN → PBKDF2 → AES-GCM, chiave non esportabile ricordata in IndexedDB — testata
+    tickets.ts       QR del JSON → foto cifrate (sealTickets), apertura delle foto (openPhoto), redact dei codici — testata
     format.ts        date (fuso Asia/Tokyo per "oggi"), yen/euro, numeri all'italiana
     constants.ts     tipi di tappa, città, categorie spese
   content/kit.ts     frasi, numeri d'emergenza, consigli (contenuti statici)
@@ -50,11 +53,12 @@ Tutto sta sotto `trips/{codice}/{collection}/{id}`; le collection ammesse sono `
 - `stops/{id}`: `status` è `ok` (nel programma), `proposed` (nuova, con `proposal`) o `idea` (wishlist, `dayId` vuoto). Può avere `pendingEdit` (modifica o eliminazione in votazione). `lat`/`lng` sono opzionali: senza, "Portami lì" cerca per nome.
 - `expenses/{id}`: `amount` + `currency` (`JPY` o `EUR`), `paidBy`, `split`; `kind: "settle"` per i rimborsi.
 - `bookings/{id}`: può avere `addressJp` e `photos`.
-- `photos/{id}`: `data` (JPEG base64, max ~800 KB), `w`, `h`. Non ha un listener: si legge su richiesta (`loadPhoto`, prima dalla cache). Spese e prenotazioni tengono gli id in `photos`.
+- `photos/{id}`: `data` (JPEG base64, max ~800 KB; oppure testo cifrato `nqv1.…` con `enc: true` per i biglietti, max ~600 KB prima della cifratura), `w`, `h`. Non ha un listener: si legge su richiesta (`loadPhoto`, prima dalla cache). Spese e prenotazioni tengono gli id in `photos`.
 - Il cambio (yen per euro) è in `meta/trip.rate`, il budget al giorno a persona in `meta/trip.dailyBudget`.
 
 ## Regole del progetto
 
+- **Biglietti sempre cifrati.** Le foto delle prenotazioni e i `qr` del JSON importato non devono MAI arrivare in chiaro a Firestore: passano da `sealTickets` / `sealPhoto` (lib/tickets.ts) con la chiave della cassaforte. `importAll` rifiuta prenotazioni con `qr` ancora presente. I codici dei QR vanno tolti anche da `code` e `details` (`redact`). Il PIN non si salva da nessuna parte; in `meta/trip.vault` ci sono solo sale, iterazioni e controllo. Le foto degli scontrini restano in chiaro.
 - Reset: `clearCollections` e `replaceItinerary` in `lib/db.ts` toccano solo `days`, `stops`, `bookings` (`ITINERARY_COLLS`) e le foto delle prenotazioni. Spese (con i loro scontrini) e cambio non si cancellano mai da lì. Il backup JSON non contiene le foto.
 - `run()` non aspetta il server più di 4 secondi: senza rete la scrittura resta in coda nella cache di Firestore. Per i nuovi documenti l'id si genera una volta sola nel modulo, così un doppio tocco non crea doppioni.
 - Il service worker (`vite-plugin-pwa`, config in `vite.config.ts`) mette in cache app, font e tile della mappa già viste. I pannelli e il visore foto hanno una voce nella cronologia: Indietro li chiude.

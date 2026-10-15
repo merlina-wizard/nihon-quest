@@ -84,3 +84,11 @@ Per lo sviluppo in locale va bene lo stesso progetto Firebase: `localhost` è gi
 ## Costi
 
 Firebase Spark e GitHub Pages sono gratuiti; per tre persone si resta molto sotto i limiti (anche con le foto: 1 GB di Firestore sono migliaia di scontrini). Le tile di OpenStreetMap sono gratuite con uso leggero come questo.
+
+## Biglietti protetti
+
+I QR e le foto dei biglietti si cifrano sul telefono con un **PIN dei biglietti** (AES-GCM, chiave ricavata dal PIN con PBKDF2) prima di arrivare su Firestore. Chi ha il link e il codice del viaggio ma non il PIN vede solo testo cifrato.
+
+1. Una persona crea il PIN: nome in alto → **Biglietti protetti**. Almeno 8 caratteri, meglio una frase. Ditevelo a voce, non per chat, e segnatelo in un posto sicuro: senza PIN i biglietti non si recuperano.
+2. Gli altri due inseriscono lo stesso PIN sul loro telefono. Con "Ricorda su questo telefono" il QR si apre subito anche offline; "Blocca su questo telefono" lo dimentica.
+3. Nel JSON da importare, una prenotazione può avere `qr: [{ "seat", "code", "image" }]` con l'immagine in `data:image/png;base64,…`. All'importazione l'app li cifra e toglie i codici anche dai campi in chiaro. Dopo l'importazione cancellate il file JSON da download e chat: lì i QR sono in chiaro.
